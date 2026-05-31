@@ -43,6 +43,7 @@ type SerialService struct {
 	textMsgService             *TextMessageService
 	notifier                   *Notifier
 	propertyService            *PropertyService
+	lastIncomingCall           *IncomingCall
 	handlers                   map[string]messageHandler
 	scheduledTaskStatusUpdater ScheduledTaskStatusUpdater
 	wg                         sync.WaitGroup

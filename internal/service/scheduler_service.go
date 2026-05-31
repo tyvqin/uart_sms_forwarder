@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/dushixiang/uart_sms_forwarder/internal/models"
@@ -17,10 +18,14 @@ import (
 
 // SchedulerService 定时任务调度服务（包含任务管理功能）
 type SchedulerService struct {
-	logger        *zap.Logger
-	cron          *cron.Cron
-	repo          *repo.ScheduledTaskRepo
-	serialManager *SerialManager
+	logger             *zap.Logger
+	cron               *cron.Cron
+	repo               *repo.ScheduledTaskRepo
+	serialManager      *SerialManager
+	propertyService    *PropertyService
+	notifier           *Notifier
+	statusPushMu       sync.Mutex
+	statusPushLastSent map[string]struct{}
 }
 
 // NewSchedulerService 创建定时任务服务实例
@@ -28,11 +33,16 @@ func NewSchedulerService(
 	logger *zap.Logger,
 	db *gorm.DB,
 	serialManager *SerialManager,
+	propertyService *PropertyService,
+	notifier *Notifier,
 ) *SchedulerService {
 	return &SchedulerService{
-		logger:        logger,
-		repo:          repo.NewScheduledTaskRepo(db),
-		serialManager: serialManager,
+		logger:             logger,
+		repo:               repo.NewScheduledTaskRepo(db),
+		serialManager:      serialManager,
+		propertyService:    propertyService,
+		notifier:           notifier,
+		statusPushLastSent: make(map[string]struct{}),
 	}
 }
 
@@ -131,6 +141,7 @@ func (s *SchedulerService) Start(ctx context.Context) error {
 
 	// 启动 cron
 	s.cron.Start()
+	go s.startStatusPushLoop(ctx)
 
 	s.logger.Info("定时任务服务启动成功")
 	return nil

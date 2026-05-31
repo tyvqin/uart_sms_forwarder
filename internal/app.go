@@ -93,6 +93,8 @@ func setup(app *orz.App) error {
 		logger,
 		db,
 		serialManager,
+		propertyService,
+		notifier,
 	)
 	serialManager.SetScheduledTaskStatusUpdater(schedulerService.UpdateLastRunStatusByMsgId)
 
@@ -222,6 +224,7 @@ func setupApi(app *orz.App, handlers *Handlers, appConfig *config.AppConfig, log
 	api.PUT("/scheduled-tasks/:id", handlers.ScheduledTask.Update)
 	api.DELETE("/scheduled-tasks/:id", handlers.ScheduledTask.Delete)
 	api.POST("/scheduled-tasks/:id/trigger", handlers.ScheduledTask.Trigger)
+	api.POST("/status-push/test", handlers.ScheduledTask.TestStatusPush)
 
 	// 健康检查接口（无需认证）
 	e.GET("/health", func(c echo.Context) error {

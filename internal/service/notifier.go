@@ -48,6 +48,8 @@ func (m NotificationMessage) String() string {
 		deviceName = m.DeviceID
 	}
 	switch m.Type {
+	case "status", "test":
+		return m.Content
 	case "call":
 		if deviceName != "" {
 			return fmt.Sprintf(`来电通知

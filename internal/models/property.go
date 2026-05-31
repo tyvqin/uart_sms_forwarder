@@ -1,45 +1,45 @@
 package models
 
-// Property 通用属性配置表
 type Property struct {
-	ID        string `gorm:"primaryKey" json:"id"`                  // 属性ID (如: notification_channels)
-	Name      string `json:"name"`                                  // 可读名称
-	Value     string `json:"value" gorm:"type:text"`                // JSON配置
-	CreatedAt int64  `json:"createdAt"`                             // 创建时间（时间戳毫秒）
-	UpdatedAt int64  `json:"updatedAt" gorm:"autoUpdateTime:milli"` // 更新时间（时间戳毫秒）
+	ID        string `gorm:"primaryKey" json:"id"`
+	Name      string `json:"name"`
+	Value     string `json:"value" gorm:"type:text"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt" gorm:"autoUpdateTime:milli"`
 }
 
 func (Property) TableName() string {
 	return "properties"
 }
 
-// NotificationChannelConfig 通知渠道配置（存储在 Property 中）
 type NotificationChannelConfig struct {
-	ID        string                 `json:"id,omitempty"`        // unique channel ID
-	Name      string                 `json:"name,omitempty"`      // display name
-	Type      string                 `json:"type"`                // dingtalk, wecom, feishu, webhook, email, telegram
-	Enabled   bool                   `json:"enabled"`             // enabled
-	DeviceIDs []string               `json:"deviceIds,omitempty"` // empty means all SIM devices
-	Config    map[string]interface{} `json:"config"`              // provider-specific config
+	ID        string                 `json:"id,omitempty"`
+	Name      string                 `json:"name,omitempty"`
+	Type      string                 `json:"type"`
+	Enabled   bool                   `json:"enabled"`
+	DeviceIDs []string               `json:"deviceIds,omitempty"`
+	Config    map[string]interface{} `json:"config"`
 }
 
-// 配置格式说明：
-// dingtalk: { "secretKey": "xxx", "signSecret": "xxx" }
-// wecom:    { "secretKey": "xxx" }
-// feishu:   { "secretKey": "xxx", "signSecret": "xxx" }
-// webhook:  {
-//   "url": "https://...",
-//   "method": "POST",  // 可选：GET, POST, PUT, PATCH, DELETE，默认 POST
-//   "headers": {"key": "value"},  // 可选：自定义请求头
-//   "bodyTemplate": "json"  // 可选：json(默认), form, custom
-//   "customBody": ""  // 当 bodyTemplate 为 custom 时使用，支持变量替换
-// }
+type StatusPushConfig struct {
+	Enabled        bool     `json:"enabled"`
+	Times          []string `json:"times"`
+	ChannelIDs     []string `json:"channelIds,omitempty"`
+	IncludeSignal  bool     `json:"includeSignal"`
+	IncludeNetwork bool     `json:"includeNetwork"`
+	IncludeRuntime bool     `json:"includeRuntime"`
+	IncludeSim     bool     `json:"includeSim"`
+}
 
-// WebhookConfig 自定义 Webhook 配置结构
+type CallNotificationConfig struct {
+	Enabled    bool     `json:"enabled"`
+	ChannelIDs []string `json:"channelIds,omitempty"`
+}
+
 type WebhookConfig struct {
-	URL          string            `json:"url"`                    // Webhook URL
-	Method       string            `json:"method,omitempty"`       // 请求方法，默认 POST
-	Headers      map[string]string `json:"headers,omitempty"`      // 自定义请求头
-	BodyTemplate string            `json:"bodyTemplate,omitempty"` // 请求体模板：json, form, custom
-	CustomBody   string            `json:"customBody,omitempty"`   // 自定义请求体模板（支持变量）
+	URL          string            `json:"url"`
+	Method       string            `json:"method,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	BodyTemplate string            `json:"bodyTemplate,omitempty"`
+	CustomBody   string            `json:"customBody,omitempty"`
 }

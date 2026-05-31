@@ -163,6 +163,14 @@ func (h *ScheduledTaskHandler) Trigger(c echo.Context) error {
 	})
 }
 
+func (h *ScheduledTaskHandler) TestStatusPush(c echo.Context) error {
+	if err := h.schedulerService.TriggerStatusPush(c.Request().Context()); err != nil {
+		h.logger.Error("trigger status push failed", zap.Error(err))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "设备状态测试推送失败: " + err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"message": "设备状态测试推送已发送"})
+}
+
 // validateTask 验证任务字段
 func (h *ScheduledTaskHandler) validateTask(task *models.ScheduledTask) error {
 	if task.Name == "" {

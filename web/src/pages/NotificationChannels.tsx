@@ -1,17 +1,26 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Bell, Loader2, Plus, Save, TestTube, Trash2} from 'lucide-react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
+import {Bell, Loader2, PhoneCall, Plus, Radio, Save, TestTube, Trash2} from 'lucide-react';
 import {toast} from 'sonner';
+
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {getDevices} from '@/api/serial.ts';
 import {
+    defaultStatusPushConfig,
+    getCallNotificationConfig,
     getNotificationChannels,
+    getStatusPushConfig,
+    type CallNotificationConfig,
     type NotificationChannel,
+    saveCallNotificationConfig,
     saveNotificationChannels,
+    saveStatusPushConfig,
+    type StatusPushConfig,
     testNotificationChannel,
+    testStatusPush,
 } from '@/api/property.ts';
 
 type ChannelType = NotificationChannel['type'];
@@ -36,7 +45,7 @@ function defaultConfig(type: ChannelType): Record<string, any> {
         case 'webhook':
             return {url: '', method: 'POST', contentType: 'application/json; charset=utf-8', headers: {}, body: DEFAULT_WEBHOOK_BODY};
         case 'email':
-            return {smtpHost: '', smtpPort: '587', username: '', password: '', from: '', to: '', subject: '收到新短信 - {{from}}'};
+            return {smtpHost: '', smtpPort: '587', username: '', password: '', from: '', to: '', subject: 'Jay SMS - {{from}}'};
         case 'telegram':
             return {apiToken: '', userid: '', proxyEnabled: false, proxyUrl: '', proxyUsername: '', proxyPassword: ''};
         default:
@@ -46,14 +55,7 @@ function defaultConfig(type: ChannelType): Record<string, any> {
 
 function makeChannel(type: ChannelType): NotificationChannel {
     const suffix = Date.now().toString(36);
-    return {
-        id: `${type}-${suffix}`,
-        name: channelLabel(type),
-        type,
-        enabled: true,
-        deviceIds: [],
-        config: defaultConfig(type),
-    };
+    return {id: `${type}-${suffix}`, name: channelLabel(type), type, enabled: true, deviceIds: [], config: defaultConfig(type)};
 }
 
 function withClientDefaults(channel: NotificationChannel, index: number): NotificationChannel {
@@ -69,28 +71,10 @@ function withClientDefaults(channel: NotificationChannel, index: number): Notifi
 function hasAnyConfigValue(config: Record<string, any>) {
     return Object.values(config).some((value) => {
         if (typeof value === 'string') return value.trim() !== '';
-        if (typeof value === 'boolean') return value;
+        if (Array.isArray(value)) return value.length > 0;
         if (value && typeof value === 'object') return Object.keys(value).length > 0;
-        return value !== undefined && value !== null;
+        return Boolean(value);
     });
-}
-
-function requiredMissing(channel: NotificationChannel) {
-    const cfg = channel.config || {};
-    switch (channel.type) {
-        case 'dingtalk':
-        case 'feishu':
-        case 'wecom':
-            return !String(cfg.secretKey || '').trim();
-        case 'webhook':
-            return !String(cfg.url || '').trim() || !String(cfg.body || '').trim();
-        case 'email':
-            return !String(cfg.smtpHost || '').trim() || !String(cfg.to || '').trim();
-        case 'telegram':
-            return !String(cfg.apiToken || '').trim() || !String(cfg.userid || '').trim();
-        default:
-            return false;
-    }
 }
 
 function normalizeForSave(channels: NotificationChannel[]) {
@@ -104,132 +88,112 @@ function normalizeForSave(channels: NotificationChannel[]) {
         }));
 }
 
+function normalizeStatusConfig(config: StatusPushConfig): StatusPushConfig {
+    const times = Array.from(new Set((config.times || []).map((time) => time.trim()).filter(Boolean))).sort();
+    return {
+        ...config,
+        times: times.length ? times : ['09:00'],
+        channelIds: Array.from(new Set(config.channelIds || [])),
+    };
+}
+
 export default function NotificationChannels() {
     const queryClient = useQueryClient();
     const [draft, setDraft] = useState<NotificationChannel[]>([]);
     const [newType, setNewType] = useState<ChannelType>('dingtalk');
+    const [statusDraft, setStatusDraft] = useState<StatusPushConfig>(defaultStatusPushConfig());
+    const [callDraft, setCallDraft] = useState<CallNotificationConfig>({enabled: false, channelIds: []});
 
-    const {data: channels = [], isLoading} = useQuery({
-        queryKey: ['notificationChannels'],
-        queryFn: getNotificationChannels,
-    });
+    const {data: channels = [], isLoading} = useQuery({queryKey: ['notificationChannels'], queryFn: getNotificationChannels});
+    const {data: devices = []} = useQuery({queryKey: ['serialDevices'], queryFn: getDevices, refetchInterval: 10000});
+    const {data: statusPushConfig} = useQuery({queryKey: ['statusPushConfig'], queryFn: getStatusPushConfig});
+    const {data: callConfig} = useQuery({queryKey: ['callNotificationConfig'], queryFn: getCallNotificationConfig});
 
-    const {data: devices = []} = useQuery({
-        queryKey: ['serialDevicesForNotifications'],
-        queryFn: getDevices,
-        refetchInterval: 10000,
-    });
-
+    useEffect(() => setDraft(channels.map(withClientDefaults)), [channels]);
     useEffect(() => {
-        setDraft(channels.map(withClientDefaults));
-    }, [channels]);
+        if (statusPushConfig) setStatusDraft(normalizeStatusConfig(statusPushConfig));
+    }, [statusPushConfig]);
+    useEffect(() => {
+        if (callConfig) setCallDraft({enabled: Boolean(callConfig.enabled), channelIds: callConfig.channelIds || []});
+    }, [callConfig]);
+
+    const deviceOptions = useMemo(() => devices.map((device) => ({id: device.id, label: device.name || device.id.toUpperCase()})), [devices]);
+    const channelOptions = useMemo(() => draft.map((channel, index) => withClientDefaults(channel, index)), [draft]);
 
     const saveMutation = useMutation({
-        mutationFn: saveNotificationChannels,
-        onSuccess: () => {
-            toast.success('保存成功');
-            queryClient.invalidateQueries({queryKey: ['notificationChannels']});
+        mutationFn: async () => {
+            await Promise.all([
+                saveNotificationChannels(normalizeForSave(draft)),
+                saveStatusPushConfig(normalizeStatusConfig(statusDraft)),
+                saveCallNotificationConfig({enabled: Boolean(callDraft.enabled), channelIds: Array.from(new Set(callDraft.channelIds || []))}),
+            ]);
         },
-        onError: (error: unknown) => {
-            console.error('保存失败:', error);
-            toast.error('保存失败');
+        onSuccess: async () => {
+            toast.success('配置已保存');
+            await Promise.all([
+                queryClient.invalidateQueries({queryKey: ['notificationChannels']}),
+                queryClient.invalidateQueries({queryKey: ['statusPushConfig']}),
+                queryClient.invalidateQueries({queryKey: ['callNotificationConfig']}),
+            ]);
         },
+        onError: (error) => toast.error(`保存失败: ${(error as Error).message}`),
     });
 
-    const testMutation = useMutation({
+    const testChannelMutation = useMutation({
         mutationFn: testNotificationChannel,
         onSuccess: () => toast.success('测试通知已发送'),
-        onError: (error: unknown) => {
-            console.error('测试失败:', error);
-            toast.error('测试失败，请检查该渠道配置');
-        },
+        onError: (error) => toast.error(`测试失败: ${(error as Error).message}`),
     });
 
-    const deviceOptions = useMemo(() => devices.map((device) => ({
-        id: device.id,
-        label: device.name || device.id.toUpperCase(),
-    })), [devices]);
+    const testStatusPushMutation = useMutation({
+        mutationFn: testStatusPush,
+        onSuccess: () => toast.success('设备状态测试推送已发送'),
+        onError: (error) => toast.error(`测试失败: ${(error as Error).message}`),
+    });
 
     const updateChannel = (index: number, patch: Partial<NotificationChannel>) => {
-        setDraft((prev) => prev.map((channel, i) => i === index ? {...channel, ...patch} : channel));
+        setDraft((current) => current.map((channel, i) => i === index ? {...channel, ...patch} : channel));
     };
 
     const updateConfig = (index: number, key: string, value: any) => {
-        setDraft((prev) => prev.map((channel, i) => {
-            if (i !== index) return channel;
-            return {...channel, config: {...(channel.config || {}), [key]: value}};
-        }));
-    };
-
-    const removeChannel = (index: number) => {
-        setDraft((prev) => prev.filter((_, i) => i !== index));
-    };
-
-    const addChannel = () => {
-        setDraft((prev) => [...prev, makeChannel(newType)]);
+        setDraft((current) => current.map((channel, i) => i === index ? {...channel, config: {...(channel.config || {}), [key]: value}} : channel));
     };
 
     const toggleDevice = (index: number, deviceId: string) => {
-        setDraft((prev) => prev.map((channel, i) => {
+        setDraft((current) => current.map((channel, i) => {
             if (i !== index) return channel;
-            const current = channel.deviceIds || [];
-            const effective = current.length === 0 ? deviceOptions.map((device) => device.id) : current;
-            const next = effective.includes(deviceId)
-                ? effective.filter((id) => id !== deviceId)
-                : Array.from(new Set([...effective, deviceId]));
-            return {...channel, deviceIds: next};
+            const ids = channel.deviceIds || [];
+            return {...channel, deviceIds: ids.includes(deviceId) ? ids.filter((id) => id !== deviceId) : [...ids, deviceId]};
         }));
     };
 
-    const testChannel = (channel: NotificationChannel) => {
-        const normalized = withClientDefaults(channel, 0);
-        if (requiredMissing(normalized)) {
-            toast.error(`${channelLabel(normalized.type)} 缺少必填配置`);
-            return;
-        }
-        testMutation.mutate({id: normalized.id, type: normalized.type});
+    const toggleChannelId = (ids: string[] | undefined, channelId: string) => {
+        const current = ids || [];
+        return current.includes(channelId) ? current.filter((id) => id !== channelId) : [...current, channelId];
     };
 
-    const save = () => {
-        const next = normalizeForSave(draft);
-        const invalid = next.find((channel) => channel.enabled && requiredMissing(channel));
-        if (invalid) {
-            toast.error(`${invalid.name || channelLabel(invalid.type)} 缺少必填配置`);
-            return;
-        }
-        saveMutation.mutate(next);
+    const addChannel = () => setDraft((current) => [...current, makeChannel(newType)]);
+    const removeChannel = (index: number) => setDraft((current) => current.filter((_, i) => i !== index));
+    const save = () => saveMutation.mutate();
+    const testChannel = (channel: NotificationChannel) => {
+        const normalized = withClientDefaults(channel, 0);
+        testChannelMutation.mutate({id: normalized.id, type: normalized.type});
     };
 
     const renderDeviceScope = (channel: NotificationChannel, index: number) => {
-        if (deviceOptions.length === 0) return null;
         const selected = channel.deviceIds || [];
-        const allDevices = selected.length === 0;
-
         return (
-            <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                    <div>
-                        <div className="text-xs font-semibold text-gray-700">适用 SIM 卡</div>
-                        <div className="text-xs text-gray-400">不选择表示所有 SIM 都推送到这个渠道</div>
-                    </div>
-                    <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => updateChannel(index, {deviceIds: []})}>
-                        全部
-                    </Button>
+            <div>
+                <div className="mb-2 flex items-center justify-between">
+                    <label className="text-xs font-semibold text-gray-600">适用 SIM</label>
+                    <Button type="button" variant="outline" size="sm" onClick={() => updateChannel(index, {deviceIds: []})}>全部</Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {deviceOptions.map((device) => {
-                        const checked = allDevices || selected.includes(device.id);
+                        const checked = selected.includes(device.id);
                         return (
-                            <label
-                                key={device.id}
-                                className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${checked ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`}
-                            >
-                                <input
-                                    type="checkbox"
-                                    className="h-4 w-4"
-                                    checked={checked}
-                                    onChange={() => toggleDevice(index, device.id)}
-                                />
+                            <label key={device.id} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${checked ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`}>
+                                <input type="checkbox" className="h-4 w-4" checked={checked} onChange={() => toggleDevice(index, device.id)}/>
                                 <span>{device.label}</span>
                             </label>
                         );
@@ -239,63 +203,44 @@ export default function NotificationChannels() {
         );
     };
 
+    const renderChannelPicker = (selectedIds: string[] | undefined, onChange: (ids: string[]) => void) => (
+        <div className="flex flex-wrap gap-2">
+            {channelOptions.map((channel) => {
+                const id = channel.id || channel.type;
+                const checked = (selectedIds || []).includes(id);
+                return (
+                    <label key={id} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${checked ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`}>
+                        <input type="checkbox" className="h-4 w-4" checked={checked} onChange={() => onChange(toggleChannelId(selectedIds, id))}/>
+                        <span>{channel.name || channelLabel(channel.type)}</span>
+                    </label>
+                );
+            })}
+        </div>
+    );
+
     const renderConfig = (channel: NotificationChannel, index: number) => {
         const cfg = channel.config || {};
-
         if (channel.type === 'dingtalk' || channel.type === 'feishu' || channel.type === 'wecom') {
             return (
                 <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                        <label className="mb-2 block text-xs font-semibold text-gray-600">访问令牌</label>
-                        <Input
-                            type="password"
-                            autoComplete="new-password"
-                            value={String(cfg.secretKey || '')}
-                            onChange={(e) => updateConfig(index, 'secretKey', e.target.value)}
-                            placeholder={channel.type === 'dingtalk' ? 'access_token' : 'webhook key'}
-                            className="font-mono"
-                        />
-                    </div>
-                    {channel.type !== 'wecom' && (
-                        <div>
-                            <label className="mb-2 block text-xs font-semibold text-gray-600">加签密钥</label>
-                            <Input
-                                type="password"
-                                autoComplete="new-password"
-                                value={String(cfg.signSecret || '')}
-                                onChange={(e) => updateConfig(index, 'signSecret', e.target.value)}
-                                placeholder="可选"
-                                className="font-mono"
-                            />
-                        </div>
-                    )}
+                    <InputField label="访问令牌" value={cfg.secretKey} onChange={(value) => updateConfig(index, 'secretKey', value)} type="password"/>
+                    {channel.type !== 'wecom' && <InputField label="加签密钥" value={cfg.signSecret} onChange={(value) => updateConfig(index, 'signSecret', value)} type="password"/>}
                 </div>
             );
         }
-
         if (channel.type === 'webhook') {
             return (
                 <div className="space-y-4">
                     <div className="grid gap-4 md:grid-cols-[1fr_160px]">
-                        <div>
-                            <label className="mb-2 block text-xs font-semibold text-gray-600">URL</label>
-                            <Input value={String(cfg.url || '')} onChange={(e) => updateConfig(index, 'url', e.target.value)} className="font-mono"/>
-                        </div>
+                        <InputField label="URL" value={cfg.url} onChange={(value) => updateConfig(index, 'url', value)}/>
                         <div>
                             <label className="mb-2 block text-xs font-semibold text-gray-600">方法</label>
-                            <select
-                                value={String(cfg.method || 'POST')}
-                                onChange={(e) => updateConfig(index, 'method', e.target.value)}
-                                className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 text-sm"
-                            >
+                            <select value={String(cfg.method || 'POST')} onChange={(e) => updateConfig(index, 'method', e.target.value)} className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 text-sm">
                                 {['POST', 'PUT', 'PATCH', 'GET', 'DELETE'].map((method) => <option key={method} value={method}>{method}</option>)}
                             </select>
                         </div>
                     </div>
-                    <div>
-                        <label className="mb-2 block text-xs font-semibold text-gray-600">Content-Type</label>
-                        <Input value={String(cfg.contentType || 'application/json; charset=utf-8')} onChange={(e) => updateConfig(index, 'contentType', e.target.value)} className="font-mono"/>
-                    </div>
+                    <InputField label="Content-Type" value={cfg.contentType || 'application/json; charset=utf-8'} onChange={(value) => updateConfig(index, 'contentType', value)}/>
                     <div>
                         <label className="mb-2 block text-xs font-semibold text-gray-600">请求体模板</label>
                         <Textarea value={String(cfg.body || DEFAULT_WEBHOOK_BODY)} onChange={(e) => updateConfig(index, 'body', e.target.value)} className="min-h-28 font-mono"/>
@@ -303,7 +248,6 @@ export default function NotificationChannels() {
                 </div>
             );
         }
-
         if (channel.type === 'email') {
             return (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -319,17 +263,12 @@ export default function NotificationChannels() {
                 </div>
             );
         }
-
         return (
             <div className="grid gap-4 md:grid-cols-2">
                 <InputField label="API Token" value={cfg.apiToken} onChange={(value) => updateConfig(index, 'apiToken', value)} type="password"/>
                 <InputField label="用户 ID" value={cfg.userid} onChange={(value) => updateConfig(index, 'userid', value)}/>
                 <label className="flex items-center gap-2 text-sm text-gray-600">
-                    <input
-                        type="checkbox"
-                        checked={Boolean(cfg.proxyEnabled)}
-                        onChange={(e) => updateConfig(index, 'proxyEnabled', e.target.checked)}
-                    />
+                    <input type="checkbox" checked={Boolean(cfg.proxyEnabled)} onChange={(e) => updateConfig(index, 'proxyEnabled', e.target.checked)}/>
                     启用 HTTP 代理
                 </label>
                 <InputField label="代理地址" value={cfg.proxyUrl} onChange={(value) => updateConfig(index, 'proxyUrl', value)}/>
@@ -340,41 +279,101 @@ export default function NotificationChannels() {
     };
 
     if (isLoading) {
-        return (
-            <div className="flex items-center justify-center py-20">
-                <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"/>
-            </div>
-        );
+        return <div className="flex items-center justify-center py-20"><div className="h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"/></div>;
     }
 
     return (
         <div className="space-y-6">
             <div className="border-b border-gray-200 pb-5">
-                <h1 className="text-2xl font-bold text-gray-900">通知渠道管理</h1>
-                <p className="mt-3 text-sm text-gray-500">每条渠道独立配置，可以绑定到指定 SIM 卡。</p>
+                <h1 className="text-2xl font-bold text-gray-900">通知渠道</h1>
+                <p className="mt-2 text-sm text-gray-500">每个渠道独立绑定 SIM，短信、状态推送和来电通知都会按渠道规则发送。</p>
             </div>
 
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-blue-50 text-blue-600"><Radio className="h-5 w-5"/></div>
+                            <div>
+                                <CardTitle className="text-base">设备状态定时推送</CardTitle>
+                                <CardDescription>按设置时间通过通知渠道发送设备在线、SIM、网络和信号状态。</CardDescription>
+                            </div>
+                        </div>
+                        <Button type="button" variant="outline" disabled={testStatusPushMutation.isPending} onClick={() => testStatusPushMutation.mutate()}>
+                            {testStatusPushMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <TestTube className="mr-2 h-4 w-4"/>}
+                            测试推送
+                        </Button>
+                    </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" checked={statusDraft.enabled} onChange={(e) => setStatusDraft({...statusDraft, enabled: e.target.checked})}/>
+                        启用定时推送
+                    </label>
+                    <div>
+                        <label className="mb-2 block text-xs font-semibold text-gray-600">推送时间</label>
+                        <div className="flex flex-wrap gap-2">
+                            {statusDraft.times.map((time, index) => (
+                                <Input key={`${time}-${index}`} type="time" value={time} onChange={(e) => {
+                                    const next = [...statusDraft.times];
+                                    next[index] = e.target.value;
+                                    setStatusDraft({...statusDraft, times: next});
+                                }} className="w-32"/>
+                            ))}
+                            <Button type="button" variant="outline" onClick={() => setStatusDraft({...statusDraft, times: [...statusDraft.times, '09:00']})}>
+                                <Plus className="mr-2 h-4 w-4"/>增加
+                            </Button>
+                            {statusDraft.times.length > 1 && (
+                                <Button type="button" variant="outline" onClick={() => setStatusDraft({...statusDraft, times: statusDraft.times.slice(0, -1)})}>删除末项</Button>
+                            )}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="mb-2 block text-xs font-semibold text-gray-600">推送渠道</label>
+                        {renderChannelPicker(statusDraft.channelIds, (ids) => setStatusDraft({...statusDraft, channelIds: ids}))}
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-sm text-gray-700">
+                        <label className="flex items-center gap-2"><input type="checkbox" checked={statusDraft.includeSignal} onChange={(e) => setStatusDraft({...statusDraft, includeSignal: e.target.checked})}/>信号状态</label>
+                        <label className="flex items-center gap-2"><input type="checkbox" checked={statusDraft.includeNetwork} onChange={(e) => setStatusDraft({...statusDraft, includeNetwork: e.target.checked})}/>网络状态</label>
+                        <label className="flex items-center gap-2"><input type="checkbox" checked={statusDraft.includeSim} onChange={(e) => setStatusDraft({...statusDraft, includeSim: e.target.checked})}/>SIM 状态</label>
+                        <label className="flex items-center gap-2"><input type="checkbox" checked={statusDraft.includeRuntime} onChange={(e) => setStatusDraft({...statusDraft, includeRuntime: e.target.checked})}/>运行时长</label>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-amber-50 text-amber-600"><PhoneCall className="h-5 w-5"/></div>
+                        <div>
+                            <CardTitle className="text-base">来电挂断通知</CardTitle>
+                            <CardDescription>模块检测到来电时不响应，电话挂断后按开关推送通知。</CardDescription>
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" checked={callDraft.enabled} onChange={(e) => setCallDraft({...callDraft, enabled: e.target.checked})}/>
+                        启用来电挂断通知
+                    </label>
+                    <div>
+                        <label className="mb-2 block text-xs font-semibold text-gray-600">推送渠道</label>
+                        {renderChannelPicker(callDraft.channelIds, (ids) => setCallDraft({...callDraft, channelIds: ids}))}
+                    </div>
+                </CardContent>
+            </Card>
+
             <div className="flex flex-wrap items-center gap-3">
-                <select
-                    value={newType}
-                    onChange={(e) => setNewType(e.target.value as ChannelType)}
-                    className="h-10 rounded-md border border-gray-200 bg-white px-3 text-sm"
-                >
+                <select value={newType} onChange={(e) => setNewType(e.target.value as ChannelType)} className="h-10 rounded-md border border-gray-200 bg-white px-3 text-sm">
                     {CHANNEL_TYPES.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}
                 </select>
                 <Button type="button" onClick={addChannel}>
-                    <Plus className="mr-2 h-4 w-4"/>
-                    新增渠道
+                    <Plus className="mr-2 h-4 w-4"/>新增渠道
                 </Button>
             </div>
 
             <div className="grid gap-5">
-                {draft.length === 0 && (
-                    <div className="rounded-md border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
-                        还没有通知渠道
-                    </div>
-                )}
-
+                {draft.length === 0 && <div className="rounded-md border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">还没有通知渠道</div>}
                 {draft.map((channel, index) => {
                     const meta = CHANNEL_TYPES.find((item) => item.type === channel.type);
                     const selected = channel.deviceIds || [];
@@ -388,15 +387,12 @@ export default function NotificationChannels() {
                                         </div>
                                         <div>
                                             <CardTitle className="text-base">{channel.name || meta?.label || channel.type}</CardTitle>
-                                            <CardDescription className="mt-1">
-                                                {meta?.description} · {selected.length === 0 ? '全部 SIM' : selected.join(', ')}
-                                            </CardDescription>
+                                            <CardDescription className="mt-1">{meta?.description} · {selected.length === 0 ? '全部 SIM' : selected.join(', ')}</CardDescription>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <Button type="button" variant="outline" size="sm" disabled={testMutation.isPending || !channel.enabled} onClick={() => testChannel(channel)}>
-                                            <TestTube className="mr-2 h-4 w-4"/>
-                                            测试
+                                        <Button type="button" variant="outline" size="sm" disabled={testChannelMutation.isPending || !channel.enabled} onClick={() => testChannel(channel)}>
+                                            <TestTube className="mr-2 h-4 w-4"/>测试
                                         </Button>
                                         <label className="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm">
                                             <input type="checkbox" checked={channel.enabled} onChange={(e) => updateChannel(index, {enabled: e.target.checked})}/>
@@ -410,10 +406,7 @@ export default function NotificationChannels() {
                             </CardHeader>
                             <CardContent className="space-y-4 pt-5">
                                 <div className="grid gap-4 md:grid-cols-[220px_1fr]">
-                                    <div>
-                                        <label className="mb-2 block text-xs font-semibold text-gray-600">渠道名称</label>
-                                        <Input value={channel.name || ''} onChange={(e) => updateChannel(index, {name: e.target.value})}/>
-                                    </div>
+                                    <InputField label="渠道名称" value={channel.name} onChange={(value) => updateChannel(index, {name: value})}/>
                                     {renderDeviceScope(channel, index)}
                                 </div>
                                 {renderConfig(channel, index)}
@@ -442,12 +435,7 @@ function InputField({label, value, onChange, type = 'text'}: {
     return (
         <div>
             <label className="mb-2 block text-xs font-semibold text-gray-600">{label}</label>
-            <Input
-                type={type}
-                value={String(value || '')}
-                onChange={(e) => onChange(e.target.value)}
-                className="font-mono"
-            />
+            <Input type={type} autoComplete={type === 'password' ? 'new-password' : undefined} value={String(value || '')} onChange={(e) => onChange(e.target.value)} className="font-mono"/>
         </div>
     );
 }

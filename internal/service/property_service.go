@@ -276,6 +276,16 @@ func (s *PropertyService) InitializeDefaultConfigs(ctx context.Context) error {
 			Name:  "通知渠道配置",
 			Value: []models.NotificationChannelConfig{},
 		},
+		{
+			ID:    PropertyIDStatusPushConfig,
+			Name:  "设备状态推送配置",
+			Value: DefaultStatusPushConfig(),
+		},
+		{
+			ID:    PropertyIDCallNotificationConfig,
+			Name:  "来电通知配置",
+			Value: DefaultCallNotificationConfig(),
+		},
 	}
 
 	// 遍历并初始化每个配置

@@ -86,46 +86,30 @@ func (s *SerialService) sendNotification(ctx context.Context, sms IncomingSMS) {
 
 // sendNotificationMessage 发送通用通知消息
 func (s *SerialService) sendNotificationMessage(ctx context.Context, msg NotificationMessage) {
-	// 获取通知渠道配置
+	s.sendNotificationMessageToChannels(ctx, msg, nil)
+}
+
+func (s *SerialService) sendNotificationMessageToChannels(ctx context.Context, msg NotificationMessage, channelIDs []string) {
 	channels, err := s.propertyService.GetNotificationChannelConfigs(ctx)
 	if err != nil {
-		s.logger.Error("获取通知渠道配置失败", zap.Error(err))
+		s.logger.Error("get notification channel config failed", zap.Error(err))
 		return
 	}
 
-	// 格式化消息
-	message := msg.String()
-
-	// 发送到所有启用的渠道
 	for _, channel := range channels {
-		if !notificationChannelCanReceive(channel, msg.DeviceID) {
+		if !notificationChannelSelected(channel.ID, channelIDs) || !notificationChannelCanReceive(channel, msg.DeviceID) {
 			continue
 		}
 
-		var sendErr error
-		switch channel.Type {
-		case "dingtalk":
-			sendErr = s.notifier.SendDingTalkByConfig(ctx, channel.Config, message)
-		case "wecom":
-			sendErr = s.notifier.SendWeComByConfig(ctx, channel.Config, message)
-		case "feishu":
-			sendErr = s.notifier.SendFeishuByConfig(ctx, channel.Config, message)
-		case "webhook":
-			sendErr = s.notifier.SendWebhookByConfig(ctx, channel.Config, msg)
-		case "email":
-			sendErr = s.notifier.SendEmail(ctx, channel.Config, msg)
-		case "telegram":
-			sendErr = s.notifier.sendTelegramByConfig(ctx, channel.Config, message)
-		}
-
+		sendErr := SendNotificationByChannel(ctx, s.notifier, channel, msg)
 		if sendErr != nil {
-			s.logger.Error("发送通知失败",
+			s.logger.Error("send notification failed",
 				zap.String("device_id", msg.DeviceID),
 				zap.String("channel_id", channel.ID),
 				zap.String("type", channel.Type),
 				zap.Error(sendErr))
 		} else {
-			s.logger.Info("通知发送成功",
+			s.logger.Info("notification sent",
 				zap.String("device_id", msg.DeviceID),
 				zap.String("channel_id", channel.ID),
 				zap.String("type", channel.Type))
