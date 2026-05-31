@@ -17,8 +17,9 @@ type JWTConfig struct {
 
 // SerialConfig 串口配置
 type SerialConfig struct {
-	Port    string               `json:"Port" mapstructure:"Port"`       // 兼容旧配置：串口路径，为空则自动检测
-	Devices []SerialDeviceConfig `json:"Devices" mapstructure:"Devices"` // 多模块配置
+	Port         string               `json:"Port" mapstructure:"Port"`                 // 兼容旧配置：串口路径，为空则自动检测
+	AutoDiscover bool                 `json:"AutoDiscover" mapstructure:"AutoDiscover"` // 自动扫描 USB 串口并按 ICCID 绑定模块
+	Devices      []SerialDeviceConfig `json:"Devices" mapstructure:"Devices"`           // 多模块配置
 }
 
 // SerialDeviceConfig 单个串口模块配置
@@ -45,11 +46,19 @@ func (c SerialConfig) NormalizedDevices() []SerialDeviceConfig {
 		return devices
 	}
 
+	if c.AutoDiscover && c.Port == "" {
+		return nil
+	}
+
 	return []SerialDeviceConfig{{
 		ID:   "default",
 		Name: "默认模块",
 		Port: c.Port,
 	}}
+}
+
+func DefaultSerialDeviceID(index int) string {
+	return defaultSerialDeviceID(index)
 }
 
 func defaultSerialDeviceID(index int) string {

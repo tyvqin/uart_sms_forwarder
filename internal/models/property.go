@@ -15,9 +15,10 @@ func (Property) TableName() string {
 
 // NotificationChannelConfig 通知渠道配置（存储在 Property 中）
 type NotificationChannelConfig struct {
-	Type    string                 `json:"type"`    // 类型: dingtalk, wecom, feishu, webhook
-	Enabled bool                   `json:"enabled"` // 是否启用
-	Config  map[string]interface{} `json:"config"`  // 配置对象
+	Type      string                 `json:"type"`
+	Enabled   bool                   `json:"enabled"`
+	DeviceIDs []string               `json:"deviceIds,omitempty"`
+	Config    map[string]interface{} `json:"config"`
 }
 
 // 配置格式说明：

@@ -37,6 +37,13 @@ func NewSerialManager(
 	propertyService *PropertyService,
 ) (*SerialManager, error) {
 	configuredDevices := serialConfig.NormalizedDevices()
+	if serialConfig.AutoDiscover {
+		var err error
+		configuredDevices, err = discoverSerialDevices(logger, configuredDevices)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if len(configuredDevices) == 0 {
 		return nil, fmt.Errorf("未配置串口模块")
 	}
@@ -49,7 +56,7 @@ func NewSerialManager(
 
 	seenIDs := make(map[string]struct{}, len(configuredDevices))
 	seenPorts := make(map[string]string, len(configuredDevices))
-	multiDeviceMode := len(serialConfig.Devices) > 0
+	multiDeviceMode := len(serialConfig.Devices) > 0 || serialConfig.AutoDiscover
 
 	for _, device := range configuredDevices {
 		device.ID = strings.TrimSpace(device.ID)

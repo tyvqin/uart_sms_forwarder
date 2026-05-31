@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dushixiang/uart_sms_forwarder/internal/models"
@@ -97,7 +98,7 @@ func (s *SerialService) sendNotificationMessage(ctx context.Context, msg Notific
 
 	// 发送到所有启用的渠道
 	for _, channel := range channels {
-		if !channel.Enabled {
+		if !channel.Enabled || !notificationChannelMatchesDevice(channel.DeviceIDs, msg.DeviceID) {
 			continue
 		}
 
@@ -183,4 +184,17 @@ func (s *SerialService) updateScheduledTaskStatus(ctx context.Context, msgID str
 			zap.String("request_id", msgID),
 			zap.Error(err))
 	}
+}
+
+func notificationChannelMatchesDevice(deviceIDs []string, deviceID string) bool {
+	if len(deviceIDs) == 0 {
+		return true
+	}
+	deviceID = strings.TrimSpace(deviceID)
+	for _, id := range deviceIDs {
+		if strings.TrimSpace(id) == deviceID {
+			return true
+		}
+	}
+	return false
 }

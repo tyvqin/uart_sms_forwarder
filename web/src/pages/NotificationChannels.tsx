@@ -7,6 +7,7 @@ import {Input} from '@/components/ui/input';
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from '@/components/ui/select';
 import {Textarea} from '@/components/ui/textarea';
+import {getDevices} from '@/api/serial.ts';
 import {
     getNotificationChannels,
     type NotificationChannel,
@@ -97,6 +98,9 @@ export default function NotificationChannels() {
         queryFn: getNotificationChannels,
     });
 
+    const {data: devices = []} = useQuery({queryKey: ['serialDevicesForNotifications'], queryFn: getDevices, refetchInterval: 10000});
+    const [deviceScopes, setDeviceScopes] = useState<Record<string, string[]>>({});
+
     // 保存 mutation
     const saveMutation = useMutation({
         mutationFn: saveNotificationChannels,
@@ -126,8 +130,10 @@ export default function NotificationChannels() {
     useEffect(() => {
         if (channels.length > 0) {
             const newFormValues: FormValues = {...formValues};
+            const nextScopes: Record<string, string[]> = {};
 
             channels.forEach((channel) => {
+                nextScopes[channel.type] = channel.deviceIds || [];
                 if (channel.type === 'dingtalk') {
                     newFormValues.dingtalkEnabled = channel.enabled;
                     newFormValues.dingtalkSecretKey = (channel.config?.secretKey as string) || '';
@@ -170,12 +176,49 @@ export default function NotificationChannels() {
             });
 
             setFormValues(newFormValues);
+            setDeviceScopes(nextScopes);
         }
     }, [channels]);
 
     // 更新表单字段
     const updateField = (field: keyof FormValues, value: any) => {
         setFormValues((prev) => ({...prev, [field]: value}));
+    };
+
+    const updateDeviceScope = (type: NotificationChannel['type'], deviceId: string, checked: boolean) => {
+        setDeviceScopes((prev) => {
+            const current = prev[type] || [];
+            const effective = current.length === 0 ? devices.map((device) => device.id) : current;
+            return {...prev, [type]: checked ? Array.from(new Set([...effective, deviceId])) : effective.filter((id) => id !== deviceId)};
+        });
+    };
+
+    const renderDeviceScope = (type: NotificationChannel['type']) => {
+        if (devices.length === 0) return null;
+        const selected = deviceScopes[type] || [];
+        const allDevices = selected.length === 0;
+        return (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                    <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-600">适用 SIM 卡</div>
+                        <div className="text-xs text-gray-400">不选择表示所有 SIM 都推送到这个渠道</div>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDeviceScopes((prev) => ({...prev, [type]: []}))}>全部</Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {devices.map((device) => {
+                        const checked = allDevices || selected.includes(device.id);
+                        return (
+                            <label key={device.id} className={`flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${checked ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`}>
+                                <input type="checkbox" className="h-3.5 w-3.5" checked={checked} onChange={(e) => updateDeviceScope(type, device.id, e.target.checked)}/>
+                                <span>{device.name || device.id.toUpperCase()}</span>
+                            </label>
+                        );
+                    })}
+                </div>
+            </div>
+        );
     };
 
     // 保存配置
@@ -187,6 +230,7 @@ export default function NotificationChannels() {
             newChannels.push({
                 type: 'dingtalk',
                 enabled: formValues.dingtalkEnabled,
+                deviceIds: deviceScopes.dingtalk || [],
                 config: {
                     secretKey: formValues.dingtalkSecretKey,
                     signSecret: formValues.dingtalkSignSecret,
@@ -199,6 +243,7 @@ export default function NotificationChannels() {
             newChannels.push({
                 type: 'wecom',
                 enabled: formValues.wecomEnabled,
+                deviceIds: deviceScopes.wecom || [],
                 config: {
                     secretKey: formValues.wecomSecretKey,
                 },
@@ -210,6 +255,7 @@ export default function NotificationChannels() {
             newChannels.push({
                 type: 'feishu',
                 enabled: formValues.feishuEnabled,
+                deviceIds: deviceScopes.feishu || [],
                 config: {
                     secretKey: formValues.feishuSecretKey,
                     signSecret: formValues.feishuSignSecret,
@@ -232,6 +278,7 @@ export default function NotificationChannels() {
             newChannels.push({
                 type: 'webhook',
                 enabled: formValues.webhookEnabled,
+                deviceIds: deviceScopes.webhook || [],
                 config: {
                     url: formValues.webhookUrl,
                     method: formValues.webhookMethod,
@@ -247,6 +294,7 @@ export default function NotificationChannels() {
             newChannels.push({
                 type: 'email',
                 enabled: formValues.emailEnabled,
+                deviceIds: deviceScopes.email || [],
                 config: {
                     smtpHost: formValues.emailSmtpHost,
                     smtpPort: formValues.emailSmtpPort,
@@ -268,6 +316,7 @@ export default function NotificationChannels() {
             newChannels.push({
                 type:'telegram',
                 enabled:formValues.telegramlEnabled,
+                deviceIds: deviceScopes.telegram || [],
                 config: {
                     apiToken: formValues.telegramApiToken,
                     userid: formValues.telegramUserid,
@@ -359,7 +408,7 @@ export default function NotificationChannels() {
                     </CardHeader>
 
                     {formValues.dingtalkEnabled && (
-                        <CardContent className="space-y-4 animate-in slide-in-from-top-2 duration-200">
+                        <CardContent className="space-y-4 animate-in slide-in-from-top-2 duration-200">\n                            {renderDeviceScope('telegram')}\n                            {renderDeviceScope('email')}\n                            {renderDeviceScope('webhook')}\n                            {renderDeviceScope('feishu')}\n                            {renderDeviceScope('wecom')}\n                            {renderDeviceScope('dingtalk')}
                             <div>
                                 <label
                                     className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
