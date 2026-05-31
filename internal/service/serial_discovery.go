@@ -68,10 +68,8 @@ func probeDiscoveredSerialDevices(logger *zap.Logger, excludedPorts map[string]s
 				zap.Error(err))
 			continue
 		}
-		logger.Info("serial auto discovery found module",
-			zap.String("port", device.Port),
-			zap.String("iccid", device.ICCID),
-			zap.String("number", device.Number))
+		logger.Debug("serial auto discovery found module",
+			zap.String("port", device.Port))
 		discovered = append(discovered, device)
 	}
 

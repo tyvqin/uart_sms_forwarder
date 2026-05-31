@@ -2,6 +2,8 @@
 # IntelliJ project files
 *.iml
 *.tar.gz
+*_patch.sh
+*_patch.zip
 .DS_Store
 .idea
 app.db
