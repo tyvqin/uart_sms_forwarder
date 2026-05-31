@@ -112,24 +112,53 @@ func (s *SerialService) DeviceName() string {
 }
 
 func (s *SerialService) ConfiguredPort() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.config.Port
 }
 
 func (s *SerialService) ExpectedICCID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.expectedICCID
 }
 
+func (s *SerialService) UpdateDiscoveredBinding(portName, expectedICCID string) {
+	portName = strings.TrimSpace(portName)
+	expectedICCID = strings.TrimSpace(expectedICCID)
+
+	s.mu.Lock()
+	portChanged := portName != "" && s.config.Port != portName
+	if portName != "" {
+		s.config.Port = portName
+	}
+	if expectedICCID != "" {
+		s.expectedICCID = expectedICCID
+	}
+	currentPort := s.port
+	s.mu.Unlock()
+
+	if portChanged {
+		s.deviceCache.Delete(CacheKeyDeviceStatus)
+		if currentPort != nil {
+			_ = currentPort.Close()
+		}
+	}
+}
+
 func (s *SerialService) DeviceInfo() SerialDeviceInfo {
+	configuredPort := s.ConfiguredPort()
+	expectedICCID := s.ExpectedICCID()
 	portName, connected := s.getConnectionInfo()
 	if portName == "" {
-		portName = s.config.Port
+		portName = configuredPort
 	}
 	return SerialDeviceInfo{
 		ID:            s.deviceID,
 		Name:          s.deviceName,
-		Port:          s.config.Port,
+		Port:          configuredPort,
 		PortName:      portName,
-		ExpectedICCID: s.expectedICCID,
+		ExpectedICCID: expectedICCID,
 		Connected:     connected,
 	}
 }
@@ -191,8 +220,8 @@ func (s *SerialService) getConnectionInfo() (portName string, connected bool) {
 func (s *SerialService) runOnce(resetBackoff func()) error {
 	// 确定使用的串口
 	var selectedPort string
-	if s.config.Port != "" {
-		selectedPort = s.config.Port
+	if configuredPort := s.ConfiguredPort(); configuredPort != "" {
+		selectedPort = configuredPort
 		s.logger.Info("使用配置的串口", zap.String("port", selectedPort))
 	} else {
 		// 获取串口列表

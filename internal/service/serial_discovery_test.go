@@ -8,11 +8,11 @@ import (
 )
 
 func TestParseStatusResponseFromBuffer(t *testing.T) {
-	status, ok := parseStatusResponseFromBuffer(`noise SMS_START:{"type":"status_response","mobile":{"iccid":"89860000000000000000","imsi":"460076500486335","number":"+8613000000001"}}:SMS_END tail`)
+	status, ok := parseStatusResponseFromBuffer(`noise SMS_START:{"type":"status_response","mobile":{"iccid":"ICCID_SAMPLE_1","imsi":"460000000000001","number":"TEST_NUMBER_1"}}:SMS_END tail`)
 	if !ok {
 		t.Fatal("expected status response")
 	}
-	if status.Mobile.Iccid != "89860000000000000000" {
+	if status.Mobile.Iccid != "ICCID_SAMPLE_1" {
 		t.Fatalf("unexpected iccid: %s", status.Mobile.Iccid)
 	}
 }
@@ -50,5 +50,20 @@ func TestAssignDiscoveredSerialDevicesAppendsNewModules(t *testing.T) {
 	}
 	if devices[1].ID != "sim2" || devices[1].ExpectedICCID != "iccid-2" {
 		t.Fatalf("new module was not appended as sim2: %+v", devices[1])
+	}
+}
+
+func TestNormalizeICCID(t *testing.T) {
+	if got := normalizeICCID(" unknown "); got != "" {
+		t.Fatalf("expected unknown ICCID to be empty, got %q", got)
+	}
+	if got := normalizeICCID("ICCID_SAMPLE_1"); got != "ICCID_SAMPLE_1" {
+		t.Fatalf("unexpected normalized ICCID: %q", got)
+	}
+}
+
+func TestDisplaySerialDeviceName(t *testing.T) {
+	if got := displaySerialDeviceName("sim12"); got != "SIM 12" {
+		t.Fatalf("unexpected device name: %q", got)
 	}
 }

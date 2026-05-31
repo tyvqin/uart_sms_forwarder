@@ -1,92 +1,78 @@
-# 短信UART转发器
+# 鐭俊UART杞彂鍣?
+鍩轰簬 鍚堝畽Air780 XXX 绯诲垪璁惧鐨勭煭淇¤浆鍙戠郴缁燂紝鏀寔鎺ユ敹鐭俊骞堕€氳繃涓插彛杞彂鍒颁笂浣嶆満銆?
+[椤圭洰璇存槑](https://blog.typesafe.cn/posts/air780e-giffgaff/)
 
-基于 合宙Air780 XXX 系列设备的短信转发系统，支持接收短信并通过串口转发到上位机。
-
-[项目说明](https://blog.typesafe.cn/posts/air780e-giffgaff/)
-
-**已测试设备**
+**宸叉祴璇曡澶?*
 
 - Air780EHV
 - Air780EHM
-- Air780E (可以使用，但属于过时设备，不建议购买)
-- Air780EPV (可以使用，但属于过时设备，不建议购买)
+- Air780E (鍙互浣跨敤锛屼絾灞炰簬杩囨椂璁惧锛屼笉寤鸿璐拱)
+- Air780EPV (鍙互浣跨敤锛屼絾灞炰簬杩囨椂璁惧锛屼笉寤鸿璐拱)
 
 
-## 🌟 功能特性
-
-- 短信转发
-- 短信记录
-- 发送短信
-- 来电通知
-- 支持钉钉、企业微信、飞书、自定义 webhook、邮箱通知
-- 计划任务发送短信
-
-## 截图
+## 馃専 鍔熻兘鐗规€?
+- 鐭俊杞彂
+- 鐭俊璁板綍
+- 鍙戦€佺煭淇?- 鏉ョ數閫氱煡
+- 鏀寔閽夐拤銆佷紒涓氬井淇°€侀涔︺€佽嚜瀹氫箟 webhook銆侀偖绠遍€氱煡
+- 璁″垝浠诲姟鍙戦€佺煭淇?
+## 鎴浘
 
 ![screenshot1.png](screenshots/screenshot1.png)
 ![screenshot2.png](screenshots/screenshot2.png)
 
-## 🚀 快速开始
+## 馃殌 蹇€熷紑濮?
+### 1. 纭欢鍑嗗
 
-### 1. 硬件准备
+**璁惧鍑嗗**锛?- 鎻掑叆鏈夋晥鐨凷IM鍗?- 閫氳繃USB杩炴帴鐢佃剳
 
-**设备准备**：
-- 插入有效的SIM卡
-- 通过USB连接电脑
+### 2. 鐑у綍 Lua 鑴氭湰
 
-### 2. 烧录 Lua 脚本
-
-使用 [**LuaTools**](https://docs.openluat.com/air780epm/common/Luatools/) 烧录 `main.lua` 脚本，第一次烧录需要点击 「下载底层和脚本」
-
+浣跨敤 [**LuaTools**](https://docs.openluat.com/air780epm/common/Luatools/) 鐑у綍 `main.lua` 鑴氭湰锛岀涓€娆＄儳褰曢渶瑕佺偣鍑?銆屼笅杞藉簳灞傚拰鑴氭湰銆?
 ![write.png](screenshots/write.png)
 
-### 3. 测试
+### 3. 娴嬭瘯
 
 ![test.png](screenshots/test.png)
 
-### 4. 把设备插入到你的小主机等 Linux USB上
+### 4. 鎶婅澶囨彃鍏ュ埌浣犵殑灏忎富鏈虹瓑 Linux USB涓?
 
-
-### 5. 运行上位机程序
-
-#### docker 方式安装
+### 5. 杩愯涓婁綅鏈虹▼搴?
+#### docker 鏂瑰紡瀹夎
 
 ```shell
-# 创建空目录
-mkdir /opt/uart_sms_forwarder
-# 下载 docker-compose.yml 文件
+# 鍒涘缓绌虹洰褰?mkdir /opt/uart_sms_forwarder
+# 涓嬭浇 docker-compose.yml 鏂囦欢
 wget https://raw.githubusercontent.com/dushixiang/uart_sms_forwarder/main/docker-compose.yml -O /opt/uart_sms_forwarder/docker-compose.yml
-# 下载 config.example.yaml 文件
+# 涓嬭浇 config.example.yaml 鏂囦欢
 wget https://raw.githubusercontent.com/dushixiang/uart_sms_forwarder/main/config.example.yaml -O /opt/uart_sms_forwarder/config.yaml
 ```
 
-修改 `docker-compose.yml` 和 `config.yaml` 文件，主要是映射 USB 路径和修改密码。
-
-启动服务
+淇敼 `docker-compose.yml` 鍜?`config.yaml` 鏂囦欢锛屼富瑕佹槸鏄犲皠 USB 璺緞鍜屼慨鏀瑰瘑鐮併€?
+鍚姩鏈嶅姟
 
 ```shell
 docker-compose up -d
 ```
 
-打开浏览器访问 8080 端口。
-
+鎵撳紑娴忚鍣ㄨ闂?8080 绔彛銆?
 ----
 
-#### 原生方式安装
+#### 鍘熺敓鏂瑰紡瀹夎
 
-下载
+涓嬭浇
 
 ```shell
 wget https://github.com/dushixiang/uart_sms_forwarder/releases/latest/download/uart_sms_forwarder-linux-amd64.tar.gz
 ```
 
-解压
+瑙ｅ帇
 ```bash
 tar -zxvf uart_sms_forwarder-linux-amd64.tar.gz -C /opt/
 mv /opt/uart_sms_forwarder-linux-amd64 /opt/uart_sms_forwarder
 ```
 
-创建系统服务
+鍒涘缓绯荤粺鏈嶅姟
 
 ```shell
 cat <<EOF > /etc/systemd/system/uart_sms_forwarder.service
@@ -108,13 +94,13 @@ WantedBy=multi-user.target
 EOF
 ```
 
-创建 sqllite 目录
+鍒涘缓 sqllite 鐩綍
 
 ```shell
 mkdir /opt/uart_sms_forwarder/data
 ```
 
-启动服务
+鍚姩鏈嶅姟
 
 ```shell
 systemctl daemon-reload
@@ -122,14 +108,10 @@ systemctl enable uart_sms_forwarder
 systemctl start uart_sms_forwarder
 ```
 
-打开浏览器访问 8080 端口。
-
-修改密码等配置项，请参考 [config.example.yaml](config.example.yaml) 文件。
-
-## 多模块部署
-
-多个 Air780 模块同时接入时，不要依赖 `/dev/ttyUSB0` 这类会变化的编号，也不要让多个进程自动检测串口。推荐给每个 USB Hub 物理口建立稳定路径，例如 `/dev/serial/by-path/...` 或 udev 别名：
-
+鎵撳紑娴忚鍣ㄨ闂?8080 绔彛銆?
+淇敼瀵嗙爜绛夐厤缃」锛岃鍙傝€?[config.example.yaml](config.example.yaml) 鏂囦欢銆?
+## 澶氭ā鍧楅儴缃?
+澶氫釜 Air780 妯″潡鍚屾椂鎺ュ叆鏃讹紝涓嶈渚濊禆 `/dev/ttyUSB0` 杩欑被浼氬彉鍖栫殑缂栧彿锛屼篃涓嶈璁╁涓繘绋嬭嚜鍔ㄦ娴嬩覆鍙ｃ€傛帹鑽愮粰姣忎釜 USB Hub 鐗╃悊鍙ｅ缓绔嬬ǔ瀹氳矾寰勶紝渚嬪 `/dev/serial/by-path/...` 鎴?udev 鍒悕锛?
 ```yaml
 App:
   Serial:
@@ -144,5 +126,23 @@ App:
         ExpectedICCID: ""
 ```
 
-配置了 `Devices` 后，每个模块会启动独立串口服务，短信发送、飞行模式、重启、状态缓存和计划任务都会按 `deviceId` 指向指定模块。`ExpectedICCID` 可选，用于发现 SIM 卡插错或 Hub 口绑定错误。
+閰嶇疆浜?`Devices` 鍚庯紝姣忎釜妯″潡浼氬惎鍔ㄧ嫭绔嬩覆鍙ｆ湇鍔★紝鐭俊鍙戦€併€侀琛屾ā寮忋€侀噸鍚€佺姸鎬佺紦瀛樺拰璁″垝浠诲姟閮戒細鎸?`deviceId` 鎸囧悜鎸囧畾妯″潡銆俙ExpectedICCID` 鍙€夛紝鐢ㄤ簬鍙戠幇 SIM 鍗℃彃閿欐垨 Hub 鍙ｇ粦瀹氶敊璇€?
+### 鑷姩鍙戠幇
 
+寮€鍚?`AutoDiscover` 鍚庯紝绋嬪簭鍚姩鏃朵細鎵弿 `/dev/serial/by-path/*`銆?`/dev/ttyACM*` 鍜?`/dev/ttyUSB*`锛屽彧淇濈暀鑳借繑鍥?`uart_sms_forwarder`
+鍗忚鐨勪覆鍙ｏ紝骞舵寜 ICCID 缁戝畾妯″潡銆?
+```yaml
+App:
+  Serial:
+    AutoDiscover: true
+    Devices:
+      - ID: sim1
+        Name: "SIM 1"
+        ExpectedICCID: "ICCID_SAMPLE_1"
+      - ID: sim2
+        Name: "SIM 2"
+        ExpectedICCID: "ICCID_SAMPLE_2"
+```
+
+寮€鍚?`AutoDiscover` 鍚庡彲浠ヤ笉鍐?`Port`銆傞厤缃鐨勬柊妯″潡浼氳嚜鍔ㄨ拷鍔犱负
+`sim3`銆乣sim4` 绛夈€?

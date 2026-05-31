@@ -18,7 +18,7 @@ App:
     Secret: ""
     ExpiresHours: 168
   Users:
-    admin: "$2y$12$7DXcOiX1D59xNTIn5riUKusAPLP88LxxoczWmUT83MBj5EFznbp8a"
+    admin: "CHANGE_ME_BCRYPT_HASH"
   OIDC:
     Enabled: false
     Issuer: ""
@@ -30,14 +30,16 @@ App:
     # Backward-compatible single-device mode. Empty means auto-detect.
     Port: ""
 
-    # Multi-device mode. When Devices is configured, every device must use a fixed Port.
-    # Prefer /dev/serial/by-path/... or your own udev alias such as /dev/air780/sim1.
+    # Auto-discover mode scans /dev/serial/by-path and ttyACM/ttyUSB ports,
+    # probes the uart_sms_forwarder protocol, and binds modules by ICCID.
+    AutoDiscover: false
+
+    # Multi-device mode. With AutoDiscover enabled, Port can be omitted and the
+    # app will fill it at startup. ExpectedICCID is recommended for stable SIM binding.
     # Devices:
     #   - ID: sim1
     #     Name: "SIM 1"
-    #     Port: "/dev/air780/sim1"
-    #     ExpectedICCID: ""
+    #     ExpectedICCID: "ICCID_SAMPLE_1"
     #   - ID: sim2
     #     Name: "SIM 2"
-    #     Port: "/dev/air780/sim2"
-    #     ExpectedICCID: ""
+    #     ExpectedICCID: "ICCID_SAMPLE_2"

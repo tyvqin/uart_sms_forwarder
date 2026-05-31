@@ -120,10 +120,15 @@ func (s *SerialService) sendNotificationMessage(ctx context.Context, msg Notific
 
 		if sendErr != nil {
 			s.logger.Error("发送通知失败",
+				zap.String("device_id", msg.DeviceID),
+				zap.String("channel_id", channel.ID),
 				zap.String("type", channel.Type),
 				zap.Error(sendErr))
 		} else {
-			s.logger.Info("通知发送成功", zap.String("type", channel.Type))
+			s.logger.Info("通知发送成功",
+				zap.String("device_id", msg.DeviceID),
+				zap.String("channel_id", channel.ID),
+				zap.String("type", channel.Type))
 		}
 	}
 }

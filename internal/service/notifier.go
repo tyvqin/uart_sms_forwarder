@@ -195,13 +195,18 @@ func (n *Notifier) SendTelegramByConfig(ctx context.Context, config map[string]i
 }
 
 func (n *Notifier) sendTelegramByConfig(ctx context.Context, config map[string]interface{}, message string) error {
-	n.logger.Info("config:", zap.Any("config", config))
-	apitoken := config["apiToken"].(string)
-	userid := config["userid"].(string)
-	proxyEnabled := config["proxyEnabled"].(bool)
-	proxyUrl := config["proxyUrl"].(string)
-	proxyUsername := config["proxyUsername"].(string)
-	proxyPassword := config["proxyPassword"].(string)
+	apitoken := stringConfigValue(config, "apiToken")
+	if apitoken == "" {
+		return fmt.Errorf("Telegram 配置缺少 apiToken")
+	}
+	userid := stringConfigValue(config, "userid")
+	if userid == "" {
+		return fmt.Errorf("Telegram 配置缺少 userid")
+	}
+	proxyEnabled, _ := config["proxyEnabled"].(bool)
+	proxyUrl := stringConfigValue(config, "proxyUrl")
+	proxyUsername := stringConfigValue(config, "proxyUsername")
+	proxyPassword := stringConfigValue(config, "proxyPassword")
 
 	// 构建发送消息的URL
 	baseURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", apitoken)
@@ -233,8 +238,8 @@ func (n *Notifier) sendTelegramByConfig(ctx context.Context, config map[string]i
 // sendCustomWebhook 发送自定义Webhook
 func (n *Notifier) sendCustomWebhook(ctx context.Context, config map[string]interface{}, msg NotificationMessage) error {
 	// 解析配置
-	webhookURL, ok := config["url"].(string)
-	if !ok || webhookURL == "" {
+	webhookURL := stringConfigValue(config, "url")
+	if webhookURL == "" {
 		return fmt.Errorf("自定义Webhook配置缺少 url")
 	}
 
@@ -254,8 +259,8 @@ func (n *Notifier) sendCustomWebhook(ctx context.Context, config map[string]inte
 		}
 	}
 
-	customBody, ok := config["body"].(string)
-	if !ok || customBody == "" {
+	customBody := stringConfigValue(config, "body")
+	if customBody == "" {
 		return fmt.Errorf("自定义Webhook配置缺少 body")
 	}
 
@@ -278,6 +283,10 @@ func (n *Notifier) sendCustomWebhook(ctx context.Context, config map[string]inte
 			v = msg.Content
 		case "type":
 			v = msg.Type
+		case "deviceId":
+			v = msg.DeviceID
+		case "deviceName":
+			v = msg.DeviceName
 		case "timestamp":
 			timestamp := time.Unix(msg.Timestamp, 0).Format(time.DateTime)
 			v = timestamp
@@ -290,7 +299,10 @@ func (n *Notifier) sendCustomWebhook(ctx context.Context, config map[string]inte
 	})
 	n.logger.Sugar().Debugf("自定义Webhook请求体: %s", bodyStr)
 	var reqBody = strings.NewReader(bodyStr)
-	var contentType = config["contentType"].(string)
+	contentType := stringConfigValue(config, "contentType")
+	if contentType == "" {
+		contentType = "application/json; charset=utf-8"
+	}
 
 	// 创建请求
 	req, err := http.NewRequestWithContext(ctx, method, webhookURL, reqBody)
@@ -325,7 +337,7 @@ func (n *Notifier) sendCustomWebhook(ctx context.Context, config map[string]inte
 	}
 
 	n.logger.Info("自定义Webhook发送成功",
-		zap.String("url", webhookURL),
+		zap.String("url", sanitizeWebhookURLForLog(webhookURL)),
 		zap.String("method", method),
 		zap.String("response", string(respBody)),
 	)
@@ -364,7 +376,7 @@ func (n *Notifier) sendJSONRequest(ctx context.Context, url string, body interfa
 		return nil, fmt.Errorf("请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(respBody))
 	}
 
-	n.logger.Info("通知发送成功", zap.String("url", url), zap.String("response", string(respBody)))
+	n.logger.Info("通知发送成功", zap.String("url", sanitizeWebhookURLForLog(url)), zap.String("response", string(respBody)))
 	return respBody, nil
 }
 
@@ -402,8 +414,23 @@ func (n *Notifier) sendJSONRequestWithProxy(ctx context.Context, url string, pro
 		return nil, fmt.Errorf("请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(respBody))
 	}
 
-	n.logger.Info("通知发送成功", zap.String("url", url), zap.String("response", string(respBody)))
+	n.logger.Info("通知发送成功", zap.String("url", sanitizeWebhookURLForLog(url)), zap.String("response", string(respBody)))
 	return respBody, nil
+}
+
+func sanitizeWebhookURLForLog(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "<invalid-url>"
+	}
+	query := parsed.Query()
+	for _, key := range []string{"access_token", "key", "token", "sign"} {
+		if query.Has(key) {
+			query.Set(key, "***")
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 // sendDingTalkByConfig 根据配置发送钉钉通知
@@ -531,6 +558,10 @@ func (n *Notifier) sendEmail(ctx context.Context, config map[string]interface{},
 				v = msg.Content
 			case "type":
 				v = msg.Type
+			case "deviceId":
+				v = msg.DeviceID
+			case "deviceName":
+				v = msg.DeviceName
 			case "timestamp":
 				v = time.Unix(msg.Timestamp, 0).Format(time.DateTime)
 			default:

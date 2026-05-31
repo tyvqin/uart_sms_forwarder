@@ -27,10 +27,27 @@ type discoveredSerialDevice struct {
 }
 
 func discoverSerialDevices(logger *zap.Logger, configured []config.SerialDeviceConfig) ([]config.SerialDeviceConfig, error) {
-	return discoverSerialDevicesExcluding(logger, configured, nil)
+	discovered, err := probeDiscoveredSerialDevices(logger, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return assignDiscoveredSerialDevices(logger, configured, discovered), nil
 }
 
 func discoverSerialDevicesExcluding(logger *zap.Logger, configured []config.SerialDeviceConfig, excludedPorts map[string]struct{}) ([]config.SerialDeviceConfig, error) {
+	discovered, err := probeDiscoveredSerialDevices(logger, excludedPorts)
+	if err != nil {
+		if len(configured) > 0 {
+			return configured, nil
+		}
+		return nil, err
+	}
+
+	return assignDiscoveredSerialDevices(logger, configured, discovered), nil
+}
+
+func probeDiscoveredSerialDevices(logger *zap.Logger, excludedPorts map[string]struct{}) ([]discoveredSerialDevice, error) {
 	candidates, err := serialDiscoveryCandidates()
 	if err != nil {
 		return nil, err
@@ -46,17 +63,45 @@ func discoverSerialDevicesExcluding(logger *zap.Logger, configured []config.Seri
 		}
 		device, err := probeSerialDevice(portName)
 		if err != nil {
-			logger.Debug("serial auto discovery skipped port", zap.String("port", portName), zap.Error(err))
+			logger.Debug("serial auto discovery skipped port",
+				zap.String("port", portName),
+				zap.Error(err))
 			continue
 		}
-		logger.Info("serial auto discovery found module", zap.String("port", device.Port), zap.String("iccid", device.ICCID), zap.String("number", device.Number))
+		logger.Info("serial auto discovery found module",
+			zap.String("port", device.Port),
+			zap.String("iccid", device.ICCID),
+			zap.String("number", device.Number))
 		discovered = append(discovered, device)
 	}
 
 	if len(discovered) == 0 {
 		return nil, fmt.Errorf("auto discovery did not find any uart_sms_forwarder modules")
 	}
-	return assignDiscoveredSerialDevices(logger, configured, discovered), nil
+
+	return discovered, nil
+}
+
+func serialPortExcluded(portName string, excludedPorts map[string]struct{}) bool {
+	if len(excludedPorts) == 0 {
+		return false
+	}
+	if _, ok := excludedPorts[portName]; ok {
+		return true
+	}
+	resolved, err := filepath.EvalSymlinks(portName)
+	if err != nil {
+		return false
+	}
+	if _, ok := excludedPorts[resolved]; ok {
+		return true
+	}
+	for excluded := range excludedPorts {
+		if resolvedExcluded, err := filepath.EvalSymlinks(excluded); err == nil && resolvedExcluded == resolved {
+			return true
+		}
+	}
+	return false
 }
 
 func serialDiscoveryCandidates() ([]string, error) {
@@ -92,21 +137,8 @@ func serialDiscoveryCandidates() ([]string, error) {
 	for _, portName := range ports {
 		add(portName)
 	}
-	return candidates, nil
-}
 
-func serialPortExcluded(portName string, excludedPorts map[string]struct{}) bool {
-	if len(excludedPorts) == 0 {
-		return false
-	}
-	if _, ok := excludedPorts[portName]; ok {
-		return true
-	}
-	if resolved, err := filepath.EvalSymlinks(portName); err == nil {
-		_, ok := excludedPorts[resolved]
-		return ok
-	}
-	return false
+	return candidates, nil
 }
 
 func isUSBSerialPort(portName string) bool {
@@ -115,12 +147,19 @@ func isUSBSerialPort(portName string) bool {
 }
 
 func probeSerialDevice(portName string) (discoveredSerialDevice, error) {
-	mode := &serial.Mode{BaudRate: 115200, DataBits: 8, StopBits: serial.OneStopBit, Parity: serial.NoParity}
+	mode := &serial.Mode{
+		BaudRate: 115200,
+		DataBits: 8,
+		StopBits: serial.OneStopBit,
+		Parity:   serial.NoParity,
+	}
+
 	port, err := serial.Open(portName, mode)
 	if err != nil {
 		return discoveredSerialDevice{}, err
 	}
 	defer port.Close()
+
 	_ = port.SetReadTimeout(serialReadTimeout)
 
 	message, _, err := buildCommandMessage(map[string]string{"action": "get_status"})
@@ -151,6 +190,7 @@ func probeSerialDevice(portName string) (discoveredSerialDevice, error) {
 			return discoveredSerialDevice{}, fmt.Errorf("read probe response: %w", err)
 		}
 	}
+
 	return discoveredSerialDevice{}, fmt.Errorf("no status response")
 }
 
@@ -174,6 +214,7 @@ func parseStatusResponseFromBuffer(data string) (*StatusData, bool) {
 		if end < 0 {
 			return nil, false
 		}
+
 		frame := rest[:end+len(smsSuffix)]
 		msg, err := parseSMSFrame(frame)
 		if err == nil && msg.Type == "status_response" {
@@ -194,7 +235,11 @@ func normalizeICCID(iccid string) string {
 	return iccid
 }
 
-func assignDiscoveredSerialDevices(logger *zap.Logger, configured []config.SerialDeviceConfig, discovered []discoveredSerialDevice) []config.SerialDeviceConfig {
+func assignDiscoveredSerialDevices(
+	logger *zap.Logger,
+	configured []config.SerialDeviceConfig,
+	discovered []discoveredSerialDevice,
+) []config.SerialDeviceConfig {
 	byICCID := make(map[string]discoveredSerialDevice, len(discovered))
 	for _, device := range discovered {
 		if device.ICCID != "" {
@@ -210,7 +255,7 @@ func assignDiscoveredSerialDevices(logger *zap.Logger, configured []config.Seria
 		device.ID = strings.TrimSpace(device.ID)
 		device.Name = strings.TrimSpace(device.Name)
 		device.Port = strings.TrimSpace(device.Port)
-		device.ExpectedICCID = normalizeICCID(device.ExpectedICCID)
+		device.ExpectedICCID = strings.TrimSpace(device.ExpectedICCID)
 		if device.ID == "" {
 			device.ID = nextSerialDeviceID(usedIDs)
 		}
@@ -227,7 +272,9 @@ func assignDiscoveredSerialDevices(logger *zap.Logger, configured []config.Seria
 				continue
 			}
 			if device.Port == "" {
-				logger.Warn("configured serial module not found during auto discovery", zap.String("device_id", device.ID), zap.String("expected_iccid", device.ExpectedICCID))
+				logger.Warn("configured serial module not found during auto discovery",
+					zap.String("device_id", device.ID),
+					zap.String("expected_iccid", device.ExpectedICCID))
 				continue
 			}
 		}
@@ -241,6 +288,7 @@ func assignDiscoveredSerialDevices(logger *zap.Logger, configured []config.Seria
 		} else {
 			usedPorts[device.Port] = struct{}{}
 		}
+
 		if device.Port != "" {
 			devices = append(devices, device)
 		}
@@ -253,8 +301,14 @@ func assignDiscoveredSerialDevices(logger *zap.Logger, configured []config.Seria
 		id := nextSerialDeviceID(usedIDs)
 		usedIDs[id] = struct{}{}
 		usedPorts[found.Port] = struct{}{}
-		devices = append(devices, config.SerialDeviceConfig{ID: id, Name: strings.ToUpper(id[:1]) + id[1:], Port: found.Port, ExpectedICCID: found.ICCID})
+		devices = append(devices, config.SerialDeviceConfig{
+			ID:            id,
+			Name:          displaySerialDeviceName(id),
+			Port:          found.Port,
+			ExpectedICCID: found.ICCID,
+		})
 	}
+
 	return devices
 }
 

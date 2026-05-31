@@ -15,10 +15,12 @@ func (Property) TableName() string {
 
 // NotificationChannelConfig 通知渠道配置（存储在 Property 中）
 type NotificationChannelConfig struct {
-	Type      string                 `json:"type"`
-	Enabled   bool                   `json:"enabled"`
-	DeviceIDs []string               `json:"deviceIds,omitempty"`
-	Config    map[string]interface{} `json:"config"`
+	ID        string                 `json:"id,omitempty"`        // unique channel ID
+	Name      string                 `json:"name,omitempty"`      // display name
+	Type      string                 `json:"type"`                // dingtalk, wecom, feishu, webhook, email, telegram
+	Enabled   bool                   `json:"enabled"`             // enabled
+	DeviceIDs []string               `json:"deviceIds,omitempty"` // empty means all SIM devices
+	Config    map[string]interface{} `json:"config"`              // provider-specific config
 }
 
 // 配置格式说明：

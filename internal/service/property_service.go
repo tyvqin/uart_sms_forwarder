@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dushixiang/uart_sms_forwarder/internal/models"
@@ -99,7 +100,164 @@ func (s *PropertyService) GetNotificationChannelConfigs(ctx context.Context) ([]
 	if err != nil {
 		return nil, fmt.Errorf("获取通知渠道配置失败: %w", err)
 	}
-	return allChannels, nil
+	return NormalizeNotificationChannelConfigs(allChannels), nil
+}
+
+func NormalizeNotificationChannelConfigs(channels []models.NotificationChannelConfig) []models.NotificationChannelConfig {
+	usedIDs := make(map[string]struct{}, len(channels))
+	typeCounts := make(map[string]int, len(channels))
+	normalized := make([]models.NotificationChannelConfig, 0, len(channels))
+
+	for _, channel := range channels {
+		channel.Type = strings.TrimSpace(channel.Type)
+		if channel.Type == "" {
+			continue
+		}
+		channel.Config = normalizeNotificationChannelConfig(channel.Type, channel.Config)
+		channel.DeviceIDs = normalizeNotificationDeviceIDs(channel.DeviceIDs)
+
+		baseID := sanitizeNotificationChannelID(channel.ID)
+		if baseID == "" {
+			typeCounts[channel.Type]++
+			baseID = sanitizeNotificationChannelID(channel.Type)
+			if typeCounts[channel.Type] > 1 {
+				baseID = fmt.Sprintf("%s-%d", baseID, typeCounts[channel.Type])
+			}
+		}
+		channel.ID = uniqueNotificationChannelID(baseID, usedIDs)
+
+		if strings.TrimSpace(channel.Name) == "" {
+			channel.Name = defaultNotificationChannelName(channel.Type)
+			if typeCounts[channel.Type] > 1 {
+				channel.Name = fmt.Sprintf("%s %d", channel.Name, typeCounts[channel.Type])
+			}
+		} else {
+			channel.Name = strings.TrimSpace(channel.Name)
+		}
+
+		normalized = append(normalized, channel)
+	}
+
+	return normalized
+}
+
+func normalizeNotificationDeviceIDs(deviceIDs []string) []string {
+	seen := make(map[string]struct{}, len(deviceIDs))
+	normalized := make([]string, 0, len(deviceIDs))
+	for _, id := range deviceIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return normalized
+}
+
+func sanitizeNotificationChannelID(id string) string {
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || r == ' ' || r == '.':
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func uniqueNotificationChannelID(base string, used map[string]struct{}) string {
+	if base == "" {
+		base = "channel"
+	}
+	id := base
+	for i := 2; ; i++ {
+		if _, ok := used[id]; !ok {
+			used[id] = struct{}{}
+			return id
+		}
+		id = fmt.Sprintf("%s-%d", base, i)
+	}
+}
+
+func normalizeNotificationChannelConfig(channelType string, config map[string]interface{}) map[string]interface{} {
+	if config == nil {
+		config = map[string]interface{}{}
+	}
+	normalized := make(map[string]interface{}, len(config)+2)
+	for k, v := range config {
+		normalized[k] = v
+	}
+
+	switch channelType {
+	case "dingtalk", "feishu", "wecom":
+		if stringConfigValue(normalized, "secretKey") == "" {
+			if value := firstStringConfigValue(normalized, "accessToken", "access_token", "token", "key", "webhookKey"); value != "" {
+				normalized["secretKey"] = value
+			}
+		}
+		if stringConfigValue(normalized, "signSecret") == "" {
+			if value := firstStringConfigValue(normalized, "sign_secret", "secret", "sign", "signKey", "sign_key"); value != "" {
+				normalized["signSecret"] = value
+			}
+		}
+	}
+
+	return normalized
+}
+
+func firstStringConfigValue(config map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if value := stringConfigValue(config, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func stringConfigValue(config map[string]interface{}, key string) string {
+	value, ok := config[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func defaultNotificationChannelName(channelType string) string {
+	switch channelType {
+	case "dingtalk":
+		return "DingTalk"
+	case "feishu":
+		return "Feishu"
+	case "wecom":
+		return "WeCom"
+	case "webhook":
+		return "Webhook"
+	case "email":
+		return "Email"
+	case "telegram":
+		return "Telegram"
+	default:
+		return strings.ToUpper(channelType)
+	}
 }
 
 // defaultPropertyConfig 默认配置项定义

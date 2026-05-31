@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/dushixiang/uart_sms_forwarder/internal/models"
@@ -37,10 +38,18 @@ func (h *PropertyHandler) GetProperty(c echo.Context) error {
 		})
 	}
 
-	// 解析 JSON 值
 	var value interface{}
 	if property.Value != "" {
-		if err := json.Unmarshal([]byte(property.Value), &value); err != nil {
+		if id == service.PropertyIDNotificationChannels {
+			var channels []models.NotificationChannelConfig
+			if err := json.Unmarshal([]byte(property.Value), &channels); err != nil {
+				h.logger.Error("解析通知渠道配置失败", zap.String("id", id), zap.Error(err))
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error": "解析通知渠道配置失败",
+				})
+			}
+			value = service.NormalizeNotificationChannelConfigs(channels)
+		} else if err := json.Unmarshal([]byte(property.Value), &value); err != nil {
 			h.logger.Error("解析属性值失败", zap.String("id", id), zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "解析属性值失败",
@@ -70,6 +79,22 @@ func (h *PropertyHandler) SetProperty(c echo.Context) error {
 		})
 	}
 
+	if id == service.PropertyIDNotificationChannels {
+		raw, err := json.Marshal(req.Value)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "无效的通知渠道配置",
+			})
+		}
+		var channels []models.NotificationChannelConfig
+		if err := json.Unmarshal(raw, &channels); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "无效的通知渠道配置",
+			})
+		}
+		req.Value = service.NormalizeNotificationChannelConfigs(channels)
+	}
+
 	if err := h.service.Set(c.Request().Context(), id, req.Name, req.Value); err != nil {
 		h.logger.Error("设置属性失败", zap.String("id", id), zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -84,7 +109,8 @@ func (h *PropertyHandler) SetProperty(c echo.Context) error {
 
 // TestNotificationChannel 测试通知渠道（从数据库读取配置）
 func (h *PropertyHandler) TestNotificationChannel(c echo.Context) error {
-	channelType := c.Param("type")
+	channelType := strings.TrimSpace(c.Param("type"))
+	channelID := strings.TrimSpace(c.QueryParam("channelId"))
 	if channelType == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "缺少渠道类型参数",
@@ -101,14 +127,7 @@ func (h *PropertyHandler) TestNotificationChannel(c echo.Context) error {
 		})
 	}
 
-	// 查找指定类型的渠道
-	var targetChannel *models.NotificationChannelConfig
-	for i := range channels {
-		if channels[i].Type == channelType {
-			targetChannel = &channels[i]
-			break
-		}
-	}
+	targetChannel := selectNotificationChannelForTest(channels, channelType, channelID)
 
 	if targetChannel == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
@@ -152,7 +171,10 @@ func (h *PropertyHandler) TestNotificationChannel(c echo.Context) error {
 	}
 
 	if sendErr != nil {
-		h.logger.Error("发送测试通知失败", zap.String("type", channelType), zap.Error(sendErr))
+		h.logger.Error("发送测试通知失败",
+			zap.String("type", channelType),
+			zap.String("channel_id", channelID),
+			zap.Error(sendErr))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "发送测试通知失败: " + sendErr.Error(),
 		})
@@ -161,4 +183,26 @@ func (h *PropertyHandler) TestNotificationChannel(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "测试通知已发送",
 	})
+}
+
+func selectNotificationChannelForTest(channels []models.NotificationChannelConfig, channelType, channelID string) *models.NotificationChannelConfig {
+	channelType = strings.TrimSpace(channelType)
+	channelID = strings.TrimSpace(channelID)
+
+	for i := range channels {
+		if channelID != "" && channels[i].ID == channelID && channels[i].Type == channelType {
+			return &channels[i]
+		}
+	}
+
+	if channelID != "" {
+		return nil
+	}
+
+	for i := range channels {
+		if channels[i].Type == channelType {
+			return &channels[i]
+		}
+	}
+	return nil
 }

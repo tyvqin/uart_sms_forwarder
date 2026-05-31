@@ -29,6 +29,8 @@ const PROPERTY_ID_NOTIFICATION_CHANNELS = 'notification_channels';
 
 // 通知渠道配置（通过 type 标识，不再使用独立ID）
 export interface NotificationChannel {
+    id?: string;
+    name?: string;
     type: 'dingtalk' | 'wecom' | 'feishu' | 'email' | 'webhook' | 'telegram'; // 渠道类型，作为唯一标识
     enabled: boolean; // 是否启用
     deviceIds?: string[]; // 适用模块；为空表示全部 SIM
@@ -47,8 +49,10 @@ export const saveNotificationChannels = async (channels: NotificationChannel[]):
 };
 
 // 测试通知渠道（从数据库读取配置）
-export const testNotificationChannel = async (type: string): Promise<{ message: string }> => {
-    return await apiClient.post<{ message: string }>(`/notifications/${type}/test`);
+export const testNotificationChannel = async (channel: Pick<NotificationChannel, 'id' | 'type'>): Promise<{ message: string }> => {
+    return await apiClient.post<{ message: string }>(`/notifications/${channel.type}/test`, null, {
+        params: channel.id ? {channelId: channel.id} : undefined,
+    });
 };
 
 export interface Version {
