@@ -8,11 +8,11 @@ import (
 )
 
 func TestParseStatusResponseFromBuffer(t *testing.T) {
-	status, ok := parseStatusResponseFromBuffer(`noise SMS_START:{"type":"status_response","mobile":{"iccid":"89860083192095723560","imsi":"460076500486335","number":"+8618520408808"}}:SMS_END tail`)
+	status, ok := parseStatusResponseFromBuffer(`noise SMS_START:{"type":"status_response","mobile":{"iccid":"89860000000000000000","imsi":"460076500486335","number":"+8613000000001"}}:SMS_END tail`)
 	if !ok {
 		t.Fatal("expected status response")
 	}
-	if status.Mobile.Iccid != "89860083192095723560" {
+	if status.Mobile.Iccid != "89860000000000000000" {
 		t.Fatalf("unexpected iccid: %s", status.Mobile.Iccid)
 	}
 }

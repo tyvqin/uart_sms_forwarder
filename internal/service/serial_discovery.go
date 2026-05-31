@@ -27,6 +27,10 @@ type discoveredSerialDevice struct {
 }
 
 func discoverSerialDevices(logger *zap.Logger, configured []config.SerialDeviceConfig) ([]config.SerialDeviceConfig, error) {
+	return discoverSerialDevicesExcluding(logger, configured, nil)
+}
+
+func discoverSerialDevicesExcluding(logger *zap.Logger, configured []config.SerialDeviceConfig, excludedPorts map[string]struct{}) ([]config.SerialDeviceConfig, error) {
 	candidates, err := serialDiscoveryCandidates()
 	if err != nil {
 		return nil, err
@@ -37,6 +41,9 @@ func discoverSerialDevices(logger *zap.Logger, configured []config.SerialDeviceC
 
 	discovered := make([]discoveredSerialDevice, 0, len(candidates))
 	for _, portName := range candidates {
+		if serialPortExcluded(portName, excludedPorts) {
+			continue
+		}
 		device, err := probeSerialDevice(portName)
 		if err != nil {
 			logger.Debug("serial auto discovery skipped port", zap.String("port", portName), zap.Error(err))
@@ -86,6 +93,20 @@ func serialDiscoveryCandidates() ([]string, error) {
 		add(portName)
 	}
 	return candidates, nil
+}
+
+func serialPortExcluded(portName string, excludedPorts map[string]struct{}) bool {
+	if len(excludedPorts) == 0 {
+		return false
+	}
+	if _, ok := excludedPorts[portName]; ok {
+		return true
+	}
+	if resolved, err := filepath.EvalSymlinks(portName); err == nil {
+		_, ok := excludedPorts[resolved]
+		return ok
+	}
+	return false
 }
 
 func isUSBSerialPort(portName string) bool {
