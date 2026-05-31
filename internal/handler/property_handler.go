@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -48,7 +49,7 @@ func (h *PropertyHandler) GetProperty(c echo.Context) error {
 					"error": "解析通知渠道配置失败",
 				})
 			}
-			value = service.NormalizeNotificationChannelConfigs(channels)
+			value = redactNotificationChannelsForResponse(service.NormalizeNotificationChannelConfigs(channels))
 		} else if err := json.Unmarshal([]byte(property.Value), &value); err != nil {
 			h.logger.Error("解析属性值失败", zap.String("id", id), zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -92,6 +93,7 @@ func (h *PropertyHandler) SetProperty(c echo.Context) error {
 				"error": "无效的通知渠道配置",
 			})
 		}
+		channels = h.mergeMaskedNotificationChannelSecrets(c.Request().Context(), channels)
 		req.Value = service.NormalizeNotificationChannelConfigs(channels)
 	}
 
@@ -155,7 +157,7 @@ func (h *PropertyHandler) TestNotificationChannel(c echo.Context) error {
 	case "webhook":
 		sendErr = h.notifier.SendWebhookByConfig(ctx, targetChannel.Config, service.NotificationMessage{
 			Type:      "sms",
-			From:      "13800001234",
+			From:      "test-sender",
 			Content:   message,
 			Timestamp: time.Now().Unix(),
 		})
@@ -188,21 +190,105 @@ func (h *PropertyHandler) TestNotificationChannel(c echo.Context) error {
 func selectNotificationChannelForTest(channels []models.NotificationChannelConfig, channelType, channelID string) *models.NotificationChannelConfig {
 	channelType = strings.TrimSpace(channelType)
 	channelID = strings.TrimSpace(channelID)
-
-	for i := range channels {
-		if channelID != "" && channels[i].ID == channelID && channels[i].Type == channelType {
-			return &channels[i]
-		}
-	}
-
-	if channelID != "" {
+	if channelID == "" {
 		return nil
 	}
 
 	for i := range channels {
-		if channels[i].Type == channelType {
+		if channels[i].ID == channelID && channels[i].Type == channelType {
 			return &channels[i]
 		}
 	}
 	return nil
+}
+
+const maskedNotificationSecret = "********"
+
+func redactNotificationChannelsForResponse(channels []models.NotificationChannelConfig) []models.NotificationChannelConfig {
+	redacted := make([]models.NotificationChannelConfig, 0, len(channels))
+	for _, channel := range channels {
+		channel.Config = cloneNotificationConfig(channel.Config)
+		for _, key := range notificationSensitiveKeys(channel.Type) {
+			if strings.TrimSpace(stringConfigValueForMask(channel.Config, key)) != "" {
+				channel.Config[key] = maskedNotificationSecret
+			}
+		}
+		redacted = append(redacted, channel)
+	}
+	return redacted
+}
+
+func (h *PropertyHandler) mergeMaskedNotificationChannelSecrets(ctx context.Context, channels []models.NotificationChannelConfig) []models.NotificationChannelConfig {
+	existing, err := h.service.GetNotificationChannelConfigs(ctx)
+	if err != nil {
+		existing = nil
+	}
+	return mergeMaskedNotificationChannelConfigSecrets(channels, existing)
+}
+
+func mergeMaskedNotificationChannelConfigSecrets(incoming, existing []models.NotificationChannelConfig) []models.NotificationChannelConfig {
+	existingByID := make(map[string]models.NotificationChannelConfig, len(existing))
+	for _, channel := range existing {
+		if strings.TrimSpace(channel.ID) != "" {
+			existingByID[channel.ID] = channel
+		}
+	}
+
+	merged := make([]models.NotificationChannelConfig, 0, len(incoming))
+	for _, channel := range incoming {
+		oldChannel, hasOld := existingByID[channel.ID]
+		channel.Config = cloneNotificationConfig(channel.Config)
+
+		for _, key := range notificationSensitiveKeys(channel.Type) {
+			if !isMaskedNotificationSecret(channel.Config[key]) {
+				continue
+			}
+			if hasOld && oldChannel.Config != nil {
+				if oldValue, ok := oldChannel.Config[key]; ok {
+					channel.Config[key] = oldValue
+					continue
+				}
+			}
+			delete(channel.Config, key)
+		}
+
+		merged = append(merged, channel)
+	}
+	return merged
+}
+
+func cloneNotificationConfig(config map[string]interface{}) map[string]interface{} {
+	clone := make(map[string]interface{}, len(config))
+	for key, value := range config {
+		clone[key] = value
+	}
+	return clone
+}
+
+func notificationSensitiveKeys(channelType string) []string {
+	switch channelType {
+	case "dingtalk", "feishu":
+		return []string{"secretKey", "signSecret"}
+	case "wecom":
+		return []string{"secretKey"}
+	case "email":
+		return []string{"password"}
+	case "telegram":
+		return []string{"apiToken", "proxyPassword"}
+	default:
+		return []string{"secretKey", "signSecret", "password", "apiToken", "proxyPassword"}
+	}
+}
+
+func isMaskedNotificationSecret(value interface{}) bool {
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == maskedNotificationSecret
+}
+
+func stringConfigValueForMask(config map[string]interface{}, key string) string {
+	if config == nil {
+		return ""
+	}
+	text, _ := config[key].(string)
+	return text
 }

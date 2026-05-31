@@ -27,7 +27,7 @@ export const saveProperty = async <T>(propertyId: string, name: string, value: T
 
 const PROPERTY_ID_NOTIFICATION_CHANNELS = 'notification_channels';
 
-// 通知渠道配置（通过 type 标识，不再使用独立ID）
+// 通知渠道配置（id 是唯一渠道 ID，type 只表示渠道类型）
 export interface NotificationChannel {
     id?: string;
     name?: string;

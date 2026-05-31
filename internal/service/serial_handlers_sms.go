@@ -44,8 +44,8 @@ func (s *SerialService) handleIncomingSMS(msg *ParsedMessage) {
 
 	s.logger.Info("收到新短信",
 		zap.String("device_id", s.deviceID),
-		zap.String("from", sms.From),
-		zap.String("content", sms.Content),
+		zap.String("from", maskForLog(sms.From)),
+		zap.Int("content_length", len([]rune(sms.Content))),
 		zap.Int64("timestamp", sms.Timestamp))
 
 	// 保存短信记录
@@ -98,7 +98,7 @@ func (s *SerialService) sendNotificationMessage(ctx context.Context, msg Notific
 
 	// 发送到所有启用的渠道
 	for _, channel := range channels {
-		if !channel.Enabled || !notificationChannelMatchesDevice(channel.DeviceIDs, msg.DeviceID) {
+		if !notificationChannelCanReceive(channel, msg.DeviceID) {
 			continue
 		}
 
@@ -152,14 +152,14 @@ func (s *SerialService) handleSMSSendResult(msg *ParsedMessage) {
 		lastRunStatus = models.LastRunStatusSuccess
 		s.logger.Info("短信发送成功",
 			zap.String("device_id", s.deviceID),
-			zap.String("to", to),
+			zap.String("to", maskForLog(to)),
 			zap.String("request_id", requestID))
 	} else {
 		status = models.MessageStatusFailed
 		lastRunStatus = models.LastRunStatusFailed
 		s.logger.Warn("短信发送失败",
 			zap.String("device_id", s.deviceID),
-			zap.String("to", to),
+			zap.String("to", maskForLog(to)),
 			zap.String("request_id", requestID))
 		go s.sendNotificationMessage(context.Background(), NotificationMessage{
 			Type:       "sms",
@@ -189,6 +189,10 @@ func (s *SerialService) updateScheduledTaskStatus(ctx context.Context, msgID str
 			zap.String("request_id", msgID),
 			zap.Error(err))
 	}
+}
+
+func notificationChannelCanReceive(channel models.NotificationChannelConfig, deviceID string) bool {
+	return channel.Enabled && notificationChannelMatchesDevice(channel.DeviceIDs, deviceID)
 }
 
 func notificationChannelMatchesDevice(deviceIDs []string, deviceID string) bool {

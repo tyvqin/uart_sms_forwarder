@@ -1,12 +1,16 @@
 
 # IntelliJ project files
-.idea
 *.iml
-out
-gen
-data
-bin
-app.db
-config.yaml
-logs
+*.tar.gz
 .DS_Store
+.idea
+app.db
+bin
+config.yaml
+data
+dist/
+gen
+logs
+out
+uart_sms_forwarder-linux-amd64*
+web/dist/

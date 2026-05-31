@@ -248,6 +248,8 @@ export default function NotificationChannels() {
                     <div>
                         <label className="mb-2 block text-xs font-semibold text-gray-600">访问令牌</label>
                         <Input
+                            type="password"
+                            autoComplete="new-password"
                             value={String(cfg.secretKey || '')}
                             onChange={(e) => updateConfig(index, 'secretKey', e.target.value)}
                             placeholder={channel.type === 'dingtalk' ? 'access_token' : 'webhook key'}
@@ -258,6 +260,8 @@ export default function NotificationChannels() {
                         <div>
                             <label className="mb-2 block text-xs font-semibold text-gray-600">加签密钥</label>
                             <Input
+                                type="password"
+                                autoComplete="new-password"
                                 value={String(cfg.signSecret || '')}
                                 onChange={(e) => updateConfig(index, 'signSecret', e.target.value)}
                                 placeholder="可选"

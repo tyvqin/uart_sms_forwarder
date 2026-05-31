@@ -433,20 +433,20 @@ func (s *SerialService) RequestCacheUpdate() {
 
 // processReceivedData 处理接收到的数据
 func (s *SerialService) processReceivedData(data string) {
-	s.logger.Sugar().Debugf("received data: %s", data)
 	msg, err := parseSMSFrame(data)
 	if err != nil {
 		if errors.Is(err, errNotSMSFrame) {
 			return
 		}
 		if errors.Is(err, errMissingType) {
-			s.logger.Warn("消息类型缺失", zap.String("data", data))
+			s.logger.Warn("message type missing")
 			return
 		}
 		s.logger.Error("解析串口消息失败", zap.Error(err), zap.String("data", data))
 		return
 	}
 
+	s.logger.Debug("received serial frame", zap.String("type", msg.Type))
 	s.routeMessage(msg)
 }
 
@@ -487,7 +487,7 @@ func (s *SerialService) SendSMS(to, content string) (string, error) {
 		return "", err
 	}
 
-	s.logger.Info("发送短信命令成功", zap.String("to", to), zap.String("request_id", msgID))
+	s.logger.Info("发送短信命令成功", zap.String("to", maskForLog(to)), zap.String("request_id", msgID))
 
 	return msgID, nil
 }
@@ -562,7 +562,7 @@ func (s *SerialService) sendJSONCommand(cmd any) error {
 		return fmt.Errorf("串口未连接")
 	}
 
-	message, jsonData, err := buildCommandMessage(cmd)
+	message, _, err := buildCommandMessage(cmd)
 	if err != nil {
 		return err
 	}
@@ -571,7 +571,7 @@ func (s *SerialService) sendJSONCommand(cmd any) error {
 	if err != nil {
 		return fmt.Errorf("串口写入失败: %w", err)
 	}
-	s.logger.Sugar().Debugf("send command: %s", jsonData)
+	s.logger.Debug("send command", zap.String("action", commandAction(cmd)))
 
 	return nil
 }
