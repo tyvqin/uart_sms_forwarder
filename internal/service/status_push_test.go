@@ -22,9 +22,9 @@ func TestFilterStatusesForChannelRespectsDeviceScope(t *testing.T) {
 
 func TestFormatStatusPushMessageDoesNotIncludePrivateIdentifiers(t *testing.T) {
 	status := &StatusData{DeviceID: "sim1", DeviceName: "SIM 1", Connected: true}
-	status.Mobile.Iccid = "12345678901234567890"
-	status.Mobile.Imsi = "460001234567890"
-	status.Mobile.Number = "+8613800000000"
+	status.Mobile.Iccid = "ICCID_SAMPLE_PRIVATE"
+	status.Mobile.Imsi = "IMSI_SAMPLE_PRIVATE"
+	status.Mobile.Number = "+1000000"
 	status.Mobile.SignalDesc = "强"
 	status.Mobile.Csq = 31
 	msg := formatStatusPushMessage([]*StatusData{status}, DefaultStatusPushConfig(), time.Unix(1700000000, 0))

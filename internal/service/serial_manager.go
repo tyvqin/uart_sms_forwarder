@@ -76,7 +76,7 @@ func NewSerialManager(
 		device.ID = strings.TrimSpace(device.ID)
 		device.Name = strings.TrimSpace(device.Name)
 		device.Port = strings.TrimSpace(device.Port)
-		device.ExpectedICCID = strings.TrimSpace(device.ExpectedICCID)
+		device.ExpectedICCID = ""
 
 		if device.ID == "" {
 			return nil, fmt.Errorf("串口模块 ID 不能为空")
@@ -300,7 +300,7 @@ func (m *SerialManager) discoverySnapshot() ([]config.SerialDeviceConfig, map[st
 			ID:            info.ID,
 			Name:          info.Name,
 			Port:          info.Port,
-			ExpectedICCID: info.ExpectedICCID,
+			ExpectedICCID: "",
 		})
 		if info.Connected {
 			if info.Port != "" {
@@ -322,7 +322,7 @@ func (m *SerialManager) applyDiscoveredDevices(configs []config.SerialDeviceConf
 		device.ID = strings.TrimSpace(device.ID)
 		device.Name = strings.TrimSpace(device.Name)
 		device.Port = strings.TrimSpace(device.Port)
-		device.ExpectedICCID = strings.TrimSpace(device.ExpectedICCID)
+		device.ExpectedICCID = ""
 		if device.ID == "" || device.Port == "" {
 			continue
 		}

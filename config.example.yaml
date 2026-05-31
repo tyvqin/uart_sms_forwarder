@@ -31,15 +31,12 @@ App:
     Port: ""
 
     # Auto-discover mode scans /dev/serial/by-path and ttyACM/ttyUSB ports,
-    # probes the uart_sms_forwarder protocol, and binds modules by ICCID.
+    # probes the uart_sms_forwarder protocol, and binds modules by SIM identifier.
     AutoDiscover: false
 
     # Multi-device mode. With AutoDiscover enabled, Port can be omitted and the
-    # app will fill it at startup. ExpectedICCID is recommended for stable SIM binding.
     # Devices:
     #   - ID: sim1
     #     Name: "SIM 1"
-    #     ExpectedICCID: "ICCID_SAMPLE_1"
     #   - ID: sim2
     #     Name: "SIM 2"
-    #     ExpectedICCID: "ICCID_SAMPLE_2"

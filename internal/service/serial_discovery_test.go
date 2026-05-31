@@ -7,58 +7,59 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestParseStatusResponseFromBuffer(t *testing.T) {
-	status, ok := parseStatusResponseFromBuffer(`noise SMS_START:{"type":"status_response","mobile":{"iccid":"ICCID_SAMPLE_1","imsi":"460000000000001","number":"TEST_NUMBER_1"}}:SMS_END tail`)
-	if !ok {
-		t.Fatal("expected status response")
+func TestAssignDiscoveredSerialDevicesPreservesConfiguredPortWhenSimChanges(t *testing.T) {
+	devices := assignDiscoveredSerialDevices(zap.NewNop(), []config.SerialDeviceConfig{
+		{ID: "sim3", Name: "SIM 3", Port: "/dev/serial/by-path/hub-port-3", ExpectedICCID: "old-card"},
+	}, []discoveredSerialDevice{
+		{Port: "/dev/serial/by-path/hub-port-3", ICCID: "new-card"},
+	})
+
+	if len(devices) != 1 {
+		t.Fatalf("expected 1 device, got %d", len(devices))
 	}
-	if status.Mobile.Iccid != "ICCID_SAMPLE_1" {
-		t.Fatalf("unexpected iccid: %s", status.Mobile.Iccid)
+	if devices[0].ID != "sim3" || devices[0].Port != "/dev/serial/by-path/hub-port-3" {
+		t.Fatalf("slot was not preserved after SIM change: %+v", devices[0])
+	}
+	if devices[0].ExpectedICCID != "" {
+		t.Fatalf("ICCID must not be persisted as a routing lock: %+v", devices[0])
 	}
 }
 
-func TestAssignDiscoveredSerialDevicesByICCID(t *testing.T) {
+func TestAssignDiscoveredSerialDevicesAppendsNewPortsSequentiallyWithoutCardLock(t *testing.T) {
 	devices := assignDiscoveredSerialDevices(zap.NewNop(), []config.SerialDeviceConfig{
-		{ID: "sim1", Name: "SIM 1", ExpectedICCID: "iccid-1"},
-		{ID: "sim2", Name: "SIM 2", ExpectedICCID: "iccid-2"},
+		{ID: "sim1", Name: "SIM 1", Port: "/dev/serial/by-path/hub-port-1"},
 	}, []discoveredSerialDevice{
-		{Port: "/dev/serial/by-path/modem-b", ICCID: "iccid-2"},
-		{Port: "/dev/serial/by-path/modem-a", ICCID: "iccid-1"},
+		{Port: "/dev/serial/by-path/hub-port-1", ICCID: "card-a"},
+		{Port: "/dev/serial/by-path/hub-port-2", ICCID: "card-b"},
 	})
 
 	if len(devices) != 2 {
 		t.Fatalf("expected 2 devices, got %d", len(devices))
 	}
-	if devices[0].ID != "sim1" || devices[0].Port != "/dev/serial/by-path/modem-a" {
-		t.Fatalf("sim1 was not bound by ICCID: %+v", devices[0])
+	if devices[1].ID != "sim2" || devices[1].Port != "/dev/serial/by-path/hub-port-2" {
+		t.Fatalf("new module was not appended as sim2 by port: %+v", devices[1])
 	}
-	if devices[1].ID != "sim2" || devices[1].Port != "/dev/serial/by-path/modem-b" {
-		t.Fatalf("sim2 was not bound by ICCID: %+v", devices[1])
+	if devices[1].ExpectedICCID != "" {
+		t.Fatalf("new module must not store ICCID as a routing key: %+v", devices[1])
 	}
 }
 
-func TestAssignDiscoveredSerialDevicesAppendsNewModules(t *testing.T) {
+func TestAssignDiscoveredSerialDevicesUsesStablePortOrderForEmptySlots(t *testing.T) {
 	devices := assignDiscoveredSerialDevices(zap.NewNop(), []config.SerialDeviceConfig{
-		{ID: "sim1", Name: "SIM 1", ExpectedICCID: "iccid-1"},
+		{ID: "sim1", Name: "SIM 1"},
 	}, []discoveredSerialDevice{
-		{Port: "/dev/serial/by-path/modem-a", ICCID: "iccid-1"},
-		{Port: "/dev/serial/by-path/modem-b", ICCID: "iccid-2"},
+		{Port: "/dev/serial/by-path/hub-port-b"},
+		{Port: "/dev/serial/by-path/hub-port-a"},
 	})
 
 	if len(devices) != 2 {
 		t.Fatalf("expected 2 devices, got %d", len(devices))
 	}
-	if devices[1].ID != "sim2" || devices[1].ExpectedICCID != "iccid-2" {
-		t.Fatalf("new module was not appended as sim2: %+v", devices[1])
+	if devices[0].ID != "sim1" || devices[0].Port != "/dev/serial/by-path/hub-port-a" {
+		t.Fatalf("empty slot should bind first stable port: %+v", devices[0])
 	}
-}
-
-func TestNormalizeICCID(t *testing.T) {
-	if got := normalizeICCID(" unknown "); got != "" {
-		t.Fatalf("expected unknown ICCID to be empty, got %q", got)
-	}
-	if got := normalizeICCID("ICCID_SAMPLE_1"); got != "ICCID_SAMPLE_1" {
-		t.Fatalf("unexpected normalized ICCID: %q", got)
+	if devices[1].ID != "sim2" || devices[1].Port != "/dev/serial/by-path/hub-port-b" {
+		t.Fatalf("second port should become sim2: %+v", devices[1])
 	}
 }
 

@@ -31,7 +31,7 @@ type SendSMSRequest struct {
 
 // SendSMS 发送短信
 // POST /api/serial/sms
-// Body: {"to": "13800138000", "content": "测试短信"}
+// Body: {"to": "PHONE_SAMPLE", "content": "测试短信"}
 func (h *SerialHandler) SendSMS(c echo.Context) error {
 	var req SendSMSRequest
 	if err := c.Bind(&req); err != nil {

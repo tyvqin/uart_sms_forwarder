@@ -39,18 +39,15 @@ type StatusData struct {
 func (s *SerialService) handleStatusResponse(msg *ParsedMessage) {
 	var statusData StatusData
 	if err := json.Unmarshal([]byte(msg.JSON), &statusData); err != nil {
-		s.logger.Error("JSON解析失败", zap.Error(err), zap.String("data", msg.JSON))
+		s.logger.Error("status response parse failed", zap.Error(err))
 		return
 	}
+
 	statusData.DeviceID = s.deviceID
 	statusData.DeviceName = s.deviceName
-	statusData.ExpectedICCID = s.expectedICCID
-	if s.expectedICCID != "" && statusData.Mobile.Iccid != "" && statusData.Mobile.Iccid != s.expectedICCID {
-		statusData.IdentityMismatch = true
-		s.logger.Error("SIM ICCID 与配置不一致",
-			zap.String("expected_iccid", s.expectedICCID),
-			zap.String("actual_iccid", statusData.Mobile.Iccid))
-	}
+	statusData.ExpectedICCID = ""
+	statusData.IdentityMismatch = false
+
 	imsi := statusData.Mobile.Imsi
 	if len(imsi) > 5 {
 		plmn := imsi[:5]
@@ -61,8 +58,9 @@ func (s *SerialService) handleStatusResponse(msg *ParsedMessage) {
 			return plmn
 		}()
 	}
+
 	s.deviceCache.Set(CacheKeyDeviceStatus, &statusData, CacheTTL)
-	s.logger.Debug("设备状态缓存已更新")
+	s.logger.Debug("device status cache updated", zap.String("device_id", s.deviceID))
 }
 
 func (s *SerialService) handleSystemReady(msg *ParsedMessage) {

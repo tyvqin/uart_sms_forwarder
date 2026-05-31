@@ -238,12 +238,9 @@ func assignDiscoveredSerialDevices(
 	configured []config.SerialDeviceConfig,
 	discovered []discoveredSerialDevice,
 ) []config.SerialDeviceConfig {
-	byICCID := make(map[string]discoveredSerialDevice, len(discovered))
-	for _, device := range discovered {
-		if device.ICCID != "" {
-			byICCID[device.ICCID] = device
-		}
-	}
+	sort.SliceStable(discovered, func(i, j int) bool {
+		return discovered[i].Port < discovered[j].Port
+	})
 
 	usedPorts := make(map[string]struct{}, len(discovered))
 	usedIDs := make(map[string]struct{}, len(configured)+len(discovered))
@@ -253,43 +250,27 @@ func assignDiscoveredSerialDevices(
 		device.ID = strings.TrimSpace(device.ID)
 		device.Name = strings.TrimSpace(device.Name)
 		device.Port = strings.TrimSpace(device.Port)
-		device.ExpectedICCID = strings.TrimSpace(device.ExpectedICCID)
+		device.ExpectedICCID = ""
 		if device.ID == "" {
 			device.ID = nextSerialDeviceID(usedIDs)
 		}
 		if device.Name == "" {
-			device.Name = device.ID
+			device.Name = displaySerialDeviceName(device.ID)
 		}
 		usedIDs[device.ID] = struct{}{}
-
-		if device.ExpectedICCID != "" {
-			if found, ok := byICCID[device.ExpectedICCID]; ok {
-				device.Port = found.Port
-				usedPorts[found.Port] = struct{}{}
-				devices = append(devices, device)
-				continue
-			}
-			if device.Port == "" {
-				logger.Warn("configured serial module not found during auto discovery",
-					zap.String("device_id", device.ID),
-					zap.String("expected_iccid", device.ExpectedICCID))
-				continue
-			}
-		}
 
 		if device.Port == "" {
 			if found, ok := firstUnusedDiscovered(discovered, usedPorts); ok {
 				device.Port = found.Port
-				device.ExpectedICCID = found.ICCID
-				usedPorts[found.Port] = struct{}{}
 			}
-		} else {
-			usedPorts[device.Port] = struct{}{}
+		}
+		if device.Port == "" {
+			logger.Warn("configured serial slot has no available USB port", zap.String("device_id", device.ID))
+			continue
 		}
 
-		if device.Port != "" {
-			devices = append(devices, device)
-		}
+		usedPorts[device.Port] = struct{}{}
+		devices = append(devices, device)
 	}
 
 	for _, found := range discovered {
@@ -303,7 +284,7 @@ func assignDiscoveredSerialDevices(
 			ID:            id,
 			Name:          displaySerialDeviceName(id),
 			Port:          found.Port,
-			ExpectedICCID: found.ICCID,
+			ExpectedICCID: "",
 		})
 	}
 

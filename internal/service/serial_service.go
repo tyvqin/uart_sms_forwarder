@@ -119,23 +119,18 @@ func (s *SerialService) ConfiguredPort() string {
 }
 
 func (s *SerialService) ExpectedICCID() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.expectedICCID
+	return ""
 }
 
-func (s *SerialService) UpdateDiscoveredBinding(portName, expectedICCID string) {
+func (s *SerialService) UpdateDiscoveredBinding(portName, _ string) {
 	portName = strings.TrimSpace(portName)
-	expectedICCID = strings.TrimSpace(expectedICCID)
 
 	s.mu.Lock()
 	portChanged := portName != "" && s.config.Port != portName
 	if portName != "" {
 		s.config.Port = portName
 	}
-	if expectedICCID != "" {
-		s.expectedICCID = expectedICCID
-	}
+	s.expectedICCID = ""
 	currentPort := s.port
 	s.mu.Unlock()
 
@@ -495,32 +490,39 @@ func (s *SerialService) SendSMS(to, content string) (string, error) {
 
 // GetStatus 获取设备状态（从缓存读取，包含 mobile 信息和串口连接状态）
 func (s *SerialService) GetStatus() (*StatusData, error) {
-	// 获取连接信息
 	portName, connected := s.getConnectionInfo()
 
-	// 从缓存读取
 	if status, ok := s.deviceCache.Get(CacheKeyDeviceStatus); ok {
-		// 更新串口连接信息
-		status.DeviceID = s.deviceID
-		status.DeviceName = s.deviceName
-		status.ExpectedICCID = s.expectedICCID
-		status.PortName = portName
-		status.Connected = connected
-
-		// 更新飞行模式状态
-		status.Flymode = s.FlyMode()
-		return status, nil
+		publicStatus := *status
+		publicStatus.DeviceID = s.deviceID
+		publicStatus.DeviceName = s.deviceName
+		publicStatus.ExpectedICCID = ""
+		publicStatus.IdentityMismatch = false
+		publicStatus.PortName = portName
+		publicStatus.Connected = connected
+		publicStatus.Flymode = s.FlyMode()
+		redactStatusPrivateFields(&publicStatus)
+		return &publicStatus, nil
 	}
 
-	// 缓存未命中，但仍然返回连接状态
 	status := &StatusData{
-		DeviceID:      s.deviceID,
-		DeviceName:    s.deviceName,
-		ExpectedICCID: s.expectedICCID,
-		PortName:      portName,
-		Connected:     connected,
+		DeviceID:   s.deviceID,
+		DeviceName: s.deviceName,
+		PortName:   portName,
+		Connected:  connected,
 	}
 	return status, nil
+}
+
+func redactStatusPrivateFields(status *StatusData) {
+	if status == nil {
+		return
+	}
+	status.ExpectedICCID = ""
+	status.IdentityMismatch = false
+	status.Mobile.Iccid = ""
+	status.Mobile.Imsi = ""
+	status.Mobile.Number = ""
 }
 
 func (s *SerialService) FlyMode() bool {

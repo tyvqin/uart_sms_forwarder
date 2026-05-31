@@ -60,8 +60,8 @@ export interface MobileInfo {
 export interface DeviceStatus {
     deviceId: string;            // 串口模块 ID
     deviceName: string;          // 串口模块名称
-    expectedIccid: string;       // 配置绑定的 ICCID
-    identityMismatch: boolean;   // 实际 ICCID 与配置是否不一致
+    expectedIccid?: string;       // 配置绑定的 ICCID
+    identityMismatch?: boolean;   // 实际 ICCID 与配置是否不一致
     type: string;                // 消息类型: "status_response"
     timestamp: number;           // 时间戳
     mem_kb: number;              // 内存使用 (KB)
@@ -77,7 +77,7 @@ export interface SerialDeviceInfo {
     name: string;
     port: string;
     portName: string;
-    expectedIccid: string;
+    expectedIccid?: string;
     connected: boolean;
 }
 

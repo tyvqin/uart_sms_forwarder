@@ -190,16 +190,6 @@ export default function SerialControl() {
 
                   </span>
                                 </div>
-                                <div className="pt-1">
-                                    <div className="text-xs text-gray-500 mb-1">ICCID</div>
-                                    <div
-                                        className="font-mono text-xs bg-gray-50 p-1.5 rounded break-all">{mobile.iccid}</div>
-                                </div>
-                                <div className="pt-1">
-                                    <div className="text-xs text-gray-500 mb-1">IMSI</div>
-                                    <div
-                                        className="font-mono text-xs bg-gray-50 p-1.5 rounded break-all">{mobile.imsi}</div>
-                                </div>
                                 {mobile.number && (
                                     <div className="pt-1">
                                         <div className="text-xs text-gray-500 mb-1">手机号</div>
@@ -298,14 +288,6 @@ export default function SerialControl() {
                                         <div className="flex justify-between items-center pb-2 border-b">
                                             <span className="text-xs text-gray-500">串口名称</span>
                                             <span className="text-sm font-medium font-mono">{deviceStatus.port_name}</span>
-                                        </div>
-                                    )}
-                                    {deviceStatus.identityMismatch && (
-                                        <div className="pb-2 border-b">
-                                            <span className="text-xs text-red-500">ICCID 与配置不一致</span>
-                                            <div className="text-xs text-gray-500 mt-1 break-all">
-                                                期望：{deviceStatus.expectedIccid}
-                                            </div>
                                         </div>
                                     )}
                                     {deviceStatus.version && (
