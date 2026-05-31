@@ -36,6 +36,9 @@ type ScheduledTaskStatusUpdater func(ctx context.Context, msgID string, status m
 type SerialService struct {
 	logger                     *zap.Logger
 	config                     config.SerialConfig
+	deviceID                   string
+	deviceName                 string
+	expectedICCID              string
 	port                       serial.Port
 	textMsgService             *TextMessageService
 	notifier                   *Notifier
@@ -43,6 +46,7 @@ type SerialService struct {
 	handlers                   map[string]messageHandler
 	scheduledTaskStatusUpdater ScheduledTaskStatusUpdater
 	wg                         sync.WaitGroup
+	writeMu                    sync.Mutex
 	// 设备信息缓存
 	deviceCache cache.Cache[string, *StatusData]
 	// 连接状态管理
@@ -57,14 +61,39 @@ type SerialService struct {
 // NewSerialService 创建串口服务实例
 func NewSerialService(
 	logger *zap.Logger,
-	config config.SerialConfig,
+	serialConfig config.SerialConfig,
 	textMsgService *TextMessageService,
 	notifier *Notifier,
 	propertyService *PropertyService,
 ) *SerialService {
+	return NewSerialDeviceService(logger, config.SerialDeviceConfig{
+		ID:   "default",
+		Name: "默认模块",
+		Port: serialConfig.Port,
+	}, textMsgService, notifier, propertyService)
+}
+
+// NewSerialDeviceService 创建指定设备的串口服务实例。
+func NewSerialDeviceService(
+	logger *zap.Logger,
+	device config.SerialDeviceConfig,
+	textMsgService *TextMessageService,
+	notifier *Notifier,
+	propertyService *PropertyService,
+) *SerialService {
+	if device.ID == "" {
+		device.ID = "default"
+	}
+	if device.Name == "" {
+		device.Name = device.ID
+	}
+
 	service := &SerialService{
-		logger:          logger,
-		config:          config,
+		logger:          logger.With(zap.String("device_id", device.ID), zap.String("device_name", device.Name)),
+		config:          config.SerialConfig{Port: device.Port},
+		deviceID:        device.ID,
+		deviceName:      device.Name,
+		expectedICCID:   device.ExpectedICCID,
 		textMsgService:  textMsgService,
 		notifier:        notifier,
 		propertyService: propertyService,
@@ -72,6 +101,37 @@ func NewSerialService(
 	}
 	service.initMessageHandlers()
 	return service
+}
+
+func (s *SerialService) DeviceID() string {
+	return s.deviceID
+}
+
+func (s *SerialService) DeviceName() string {
+	return s.deviceName
+}
+
+func (s *SerialService) ConfiguredPort() string {
+	return s.config.Port
+}
+
+func (s *SerialService) ExpectedICCID() string {
+	return s.expectedICCID
+}
+
+func (s *SerialService) DeviceInfo() SerialDeviceInfo {
+	portName, connected := s.getConnectionInfo()
+	if portName == "" {
+		portName = s.config.Port
+	}
+	return SerialDeviceInfo{
+		ID:            s.deviceID,
+		Name:          s.deviceName,
+		Port:          s.config.Port,
+		PortName:      portName,
+		ExpectedICCID: s.expectedICCID,
+		Connected:     connected,
+	}
 }
 
 func (s *SerialService) SetScheduledTaskStatusUpdater(updater ScheduledTaskStatusUpdater) {
@@ -129,25 +189,24 @@ func (s *SerialService) getConnectionInfo() (portName string, connected bool) {
 
 // runOnce 执行一次连接尝试
 func (s *SerialService) runOnce(resetBackoff func()) error {
-	// 获取串口列表
-	ports, err := serial.GetPortsList()
-	if err != nil {
-		return fmt.Errorf("获取串口列表失败: %w", err)
-	}
-
-	if len(ports) == 0 {
-		return fmt.Errorf("未发现可用串口")
-	}
-
-	s.logger.Debug("发现可用串口", zap.Strings("ports", ports))
-
 	// 确定使用的串口
 	var selectedPort string
 	if s.config.Port != "" {
-		// 使用配置的串口
 		selectedPort = s.config.Port
 		s.logger.Info("使用配置的串口", zap.String("port", selectedPort))
 	} else {
+		// 获取串口列表
+		ports, err := serial.GetPortsList()
+		if err != nil {
+			return fmt.Errorf("获取串口列表失败: %w", err)
+		}
+
+		if len(ports) == 0 {
+			return fmt.Errorf("未发现可用串口")
+		}
+
+		s.logger.Debug("发现可用串口", zap.Strings("ports", ports))
+
 		// 自动检测
 		s.logger.Info("开始自动检测串口...")
 		selectedPort, err = s.autoDetectPort(ports)
@@ -369,6 +428,7 @@ func (s *SerialService) SendSMS(to, content string) (string, error) {
 	msgID := uuid.NewString()
 	msg := &models.TextMessage{
 		ID:        msgID,
+		DeviceID:  s.deviceID,
 		From:      "", // 发送方是本机
 		To:        to,
 		Content:   content,
@@ -411,6 +471,9 @@ func (s *SerialService) GetStatus() (*StatusData, error) {
 	// 从缓存读取
 	if status, ok := s.deviceCache.Get(CacheKeyDeviceStatus); ok {
 		// 更新串口连接信息
+		status.DeviceID = s.deviceID
+		status.DeviceName = s.deviceName
+		status.ExpectedICCID = s.expectedICCID
 		status.PortName = portName
 		status.Connected = connected
 
@@ -421,8 +484,11 @@ func (s *SerialService) GetStatus() (*StatusData, error) {
 
 	// 缓存未命中，但仍然返回连接状态
 	status := &StatusData{
-		PortName:  portName,
-		Connected: connected,
+		DeviceID:      s.deviceID,
+		DeviceName:    s.deviceName,
+		ExpectedICCID: s.expectedICCID,
+		PortName:      portName,
+		Connected:     connected,
 	}
 	return status, nil
 }
@@ -460,6 +526,9 @@ func (s *SerialService) RebootMcu() error {
 
 // sendJSONCommand 发送JSON命令到设备
 func (s *SerialService) sendJSONCommand(cmd any) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	if s.port == nil {
 		return fmt.Errorf("串口未连接")
 	}

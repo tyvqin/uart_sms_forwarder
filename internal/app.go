@@ -76,21 +76,25 @@ func setup(app *orz.App) error {
 	}
 
 	// 6. 初始化串口服务
-	serialService := service.NewSerialService(
+	serialManager, err := service.NewSerialManager(
 		logger,
 		appConfig.Serial,
 		textMessageService,
 		notifier,
 		propertyService,
 	)
+	if err != nil {
+		logger.Error("初始化串口服务失败", zap.Error(err))
+		return err
+	}
 
 	// 7. 初始化定时任务服务
 	schedulerService := service.NewSchedulerService(
 		logger,
 		db,
-		serialService,
+		serialManager,
 	)
-	serialService.SetScheduledTaskStatusUpdater(schedulerService.UpdateLastRunStatusByMsgId)
+	serialManager.SetScheduledTaskStatusUpdater(schedulerService.UpdateLastRunStatusByMsgId)
 
 	// 8. 初始化 OIDC 和 Account Service
 	oidcService := service.NewOIDCService(logger, &appConfig)
@@ -100,7 +104,7 @@ func setup(app *orz.App) error {
 	authHandler := handler.NewAuthHandler(logger, accountService)
 	propertyHandler := handler.NewPropertyHandler(logger, propertyService, notifier)
 	textMessageHandler := handler.NewTextMessageHandler(logger, textMessageService, textMessageRepo)
-	serialHandler := handler.NewSerialHandler(logger, serialService)
+	serialHandler := handler.NewSerialHandler(logger, serialManager)
 	scheduledTaskHandler := handler.NewScheduledTaskHandler(logger, schedulerService)
 
 	handlers := &Handlers{
@@ -117,7 +121,7 @@ func setup(app *orz.App) error {
 	// 11. 启动后台服务
 	background := context.Background()
 	// 启动串口服务
-	go serialService.Start()
+	serialManager.Start()
 
 	// 启动定时任务服务
 	if err := schedulerService.Start(background); err != nil {
@@ -206,6 +210,8 @@ func setupApi(app *orz.App, handlers *Handlers, appConfig *config.AppConfig, log
 	// Serial API
 	api.POST("/serial/sms", handlers.Serial.SendSMS)
 	api.GET("/serial/status", handlers.Serial.GetStatus) // 包含移动网络信息
+	api.GET("/serial/statuses", handlers.Serial.GetAllStatus)
+	api.GET("/serial/devices", handlers.Serial.ListDevices)
 	api.POST("/serial/flymode", handlers.Serial.SetFlymode)
 	api.POST("/serial/reboot", handlers.Serial.RebootMcu)
 

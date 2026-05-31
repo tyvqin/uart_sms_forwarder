@@ -23,15 +23,18 @@ func (s *SerialService) handleIncomingCall(msg *ParsedMessage) {
 	}
 
 	s.logger.Info("收到来电",
+		zap.String("device_id", s.deviceID),
 		zap.String("from", call.From),
 		zap.Int64("timestamp", call.Timestamp))
 
 	// 转换为通用通知消息并发送
 	notifMsg := NotificationMessage{
-		Type:      "call",
-		From:      call.From,
-		Content:   "", // 来电无内容
-		Timestamp: call.Timestamp,
+		Type:       "call",
+		DeviceID:   s.deviceID,
+		DeviceName: s.deviceName,
+		From:       call.From,
+		Content:    "", // 来电无内容
+		Timestamp:  call.Timestamp,
 	}
 
 	go s.sendNotificationMessage(context.Background(), notifMsg)

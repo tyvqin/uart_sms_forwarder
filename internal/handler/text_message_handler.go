@@ -111,7 +111,8 @@ func (h *TextMessageHandler) GetConversationMessages(c echo.Context) error {
 		zap.String("peer_raw", peer),
 		zap.String("peer_decoded", decodedPeer))
 
-	messages, err := h.service.GetConversationMessages(c.Request().Context(), decodedPeer)
+	deviceID := c.QueryParam("deviceId")
+	messages, err := h.service.GetConversationMessages(c.Request().Context(), deviceID, decodedPeer)
 	if err != nil {
 		h.logger.Error("获取会话消息失败", zap.Error(err), zap.String("peer", decodedPeer))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -144,7 +145,8 @@ func (h *TextMessageHandler) DeleteConversation(c echo.Context) error {
 		zap.String("peer_raw", peer),
 		zap.String("peer_decoded", decodedPeer))
 
-	if err := h.service.DeleteConversation(c.Request().Context(), decodedPeer); err != nil {
+	deviceID := c.QueryParam("deviceId")
+	if err := h.service.DeleteConversation(c.Request().Context(), deviceID, decodedPeer); err != nil {
 		h.logger.Error("删除会话失败", zap.Error(err), zap.String("peer", decodedPeer))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "删除会话失败",

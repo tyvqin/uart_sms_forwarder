@@ -11,21 +11,22 @@ import (
 // SerialHandler 串口控制API处理器
 type SerialHandler struct {
 	logger        *zap.Logger
-	serialService *service.SerialService
+	serialManager *service.SerialManager
 }
 
 // NewSerialHandler 创建串口Handler实例
-func NewSerialHandler(logger *zap.Logger, serialService *service.SerialService) *SerialHandler {
+func NewSerialHandler(logger *zap.Logger, serialManager *service.SerialManager) *SerialHandler {
 	return &SerialHandler{
 		logger:        logger,
-		serialService: serialService,
+		serialManager: serialManager,
 	}
 }
 
 // SendSMSRequest 发送短信请求
 type SendSMSRequest struct {
-	To      string `json:"to"`
-	Content string `json:"content"`
+	DeviceID string `json:"deviceId"`
+	To       string `json:"to"`
+	Content  string `json:"content"`
 }
 
 // SendSMS 发送短信
@@ -45,7 +46,7 @@ func (h *SerialHandler) SendSMS(c echo.Context) error {
 		})
 	}
 
-	if _, err := h.serialService.SendSMS(req.To, req.Content); err != nil {
+	if _, err := h.serialManager.SendSMS(req.DeviceID, req.To, req.Content); err != nil {
 		h.logger.Error("发送短信失败", zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "发送失败",
@@ -60,7 +61,7 @@ func (h *SerialHandler) SendSMS(c echo.Context) error {
 // GetStatus 获取设备状态（包含移动网络信息）
 // GET /api/serial/status
 func (h *SerialHandler) GetStatus(c echo.Context) error {
-	data, err := h.serialService.GetStatus()
+	data, err := h.serialManager.GetStatus(c.QueryParam("deviceId"))
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
@@ -70,9 +71,29 @@ func (h *SerialHandler) GetStatus(c echo.Context) error {
 	return c.JSON(http.StatusOK, data)
 }
 
+// GetAllStatus 获取所有设备状态
+// GET /api/serial/statuses
+func (h *SerialHandler) GetAllStatus(c echo.Context) error {
+	data, err := h.serialManager.GetAllStatus()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, data)
+}
+
+// ListDevices 获取串口模块列表
+// GET /api/serial/devices
+func (h *SerialHandler) ListDevices(c echo.Context) error {
+	return c.JSON(http.StatusOK, h.serialManager.ListDevices())
+}
+
 // SetFlymodeRequest 设置飞行模式请求
 type SetFlymodeRequest struct {
-	Enabled bool `json:"enabled"`
+	DeviceID string `json:"deviceId"`
+	Enabled  bool   `json:"enabled"`
 }
 
 // SetFlymode 设置飞行模式
@@ -86,29 +107,44 @@ func (h *SerialHandler) SetFlymode(c echo.Context) error {
 		})
 	}
 
-	err := h.serialService.SetFlymode(req.Enabled)
+	err := h.serialManager.SetFlymode(req.DeviceID, req.Enabled)
 	if err != nil {
 		h.logger.Error("设置飞行模式失败", zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
 	}
-	go h.serialService.RequestCacheUpdate()
+	go func() {
+		if err := h.serialManager.RequestCacheUpdate(req.DeviceID); err != nil {
+			h.logger.Error("刷新设备状态失败", zap.Error(err))
+		}
+	}()
 
 	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+type RebootMcuRequest struct {
+	DeviceID string `json:"deviceId"`
 }
 
 // RebootMcu 重启模块
 // POST /api/serial/reboot
 func (h *SerialHandler) RebootMcu(c echo.Context) error {
-	err := h.serialService.RebootMcu()
+	var req RebootMcuRequest
+	_ = c.Bind(&req)
+
+	err := h.serialManager.RebootMcu(req.DeviceID)
 	if err != nil {
 		h.logger.Error("重启模块", zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
 	}
-	go h.serialService.RequestCacheUpdate()
+	go func() {
+		if err := h.serialManager.RequestCacheUpdate(req.DeviceID); err != nil {
+			h.logger.Error("刷新设备状态失败", zap.Error(err))
+		}
+	}()
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }

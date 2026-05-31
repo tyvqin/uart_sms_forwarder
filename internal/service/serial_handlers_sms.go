@@ -42,6 +42,7 @@ func (s *SerialService) handleIncomingSMS(msg *ParsedMessage) {
 	}
 
 	s.logger.Info("收到新短信",
+		zap.String("device_id", s.deviceID),
 		zap.String("from", sms.From),
 		zap.String("content", sms.Content),
 		zap.Int64("timestamp", sms.Timestamp))
@@ -50,6 +51,7 @@ func (s *SerialService) handleIncomingSMS(msg *ParsedMessage) {
 	ctx := context.Background()
 	record := &models.TextMessage{
 		ID:        uuid.NewString(),
+		DeviceID:  s.deviceID,
 		From:      sms.From,
 		To:        "", // 接收方是本机
 		Content:   sms.Content,
@@ -70,10 +72,12 @@ func (s *SerialService) handleIncomingSMS(msg *ParsedMessage) {
 func (s *SerialService) sendNotification(ctx context.Context, sms IncomingSMS) {
 	// 转换为通用通知消息
 	msg := NotificationMessage{
-		Type:      "sms",
-		From:      sms.From,
-		Content:   sms.Content,
-		Timestamp: sms.Timestamp,
+		Type:       "sms",
+		DeviceID:   s.deviceID,
+		DeviceName: s.deviceName,
+		From:       sms.From,
+		Content:    sms.Content,
+		Timestamp:  sms.Timestamp,
 	}
 
 	s.sendNotificationMessage(ctx, msg)
@@ -141,19 +145,23 @@ func (s *SerialService) handleSMSSendResult(msg *ParsedMessage) {
 		status = models.MessageStatusSent
 		lastRunStatus = models.LastRunStatusSuccess
 		s.logger.Info("短信发送成功",
+			zap.String("device_id", s.deviceID),
 			zap.String("to", to),
 			zap.String("request_id", requestID))
 	} else {
 		status = models.MessageStatusFailed
 		lastRunStatus = models.LastRunStatusFailed
 		s.logger.Warn("短信发送失败",
+			zap.String("device_id", s.deviceID),
 			zap.String("to", to),
 			zap.String("request_id", requestID))
 		go s.sendNotificationMessage(context.Background(), NotificationMessage{
-			Type:      "sms",
-			From:      "UART 短信转发器",
-			Content:   fmt.Sprintf("短信发送失败: %s", to),
-			Timestamp: time.Now().Unix(),
+			Type:       "sms",
+			DeviceID:   s.deviceID,
+			DeviceName: s.deviceName,
+			From:       "UART 短信转发器",
+			Content:    fmt.Sprintf("短信发送失败: %s", to),
+			Timestamp:  time.Now().Unix(),
 		})
 	}
 

@@ -126,4 +126,23 @@ systemctl start uart_sms_forwarder
 
 修改密码等配置项，请参考 [config.example.yaml](config.example.yaml) 文件。
 
+## 多模块部署
+
+多个 Air780 模块同时接入时，不要依赖 `/dev/ttyUSB0` 这类会变化的编号，也不要让多个进程自动检测串口。推荐给每个 USB Hub 物理口建立稳定路径，例如 `/dev/serial/by-path/...` 或 udev 别名：
+
+```yaml
+App:
+  Serial:
+    Devices:
+      - ID: sim1
+        Name: "SIM 1"
+        Port: "/dev/air780/sim1"
+        ExpectedICCID: ""
+      - ID: sim2
+        Name: "SIM 2"
+        Port: "/dev/air780/sim2"
+        ExpectedICCID: ""
+```
+
+配置了 `Devices` 后，每个模块会启动独立串口服务，短信发送、飞行模式、重启、状态缓存和计划任务都会按 `deviceId` 指向指定模块。`ExpectedICCID` 可选，用于发现 SIM 卡插错或 Hub 口绑定错误。
 

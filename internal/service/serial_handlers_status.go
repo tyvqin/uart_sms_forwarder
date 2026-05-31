@@ -7,10 +7,14 @@ import (
 )
 
 type StatusData struct {
-	Flymode bool   `json:"flymode"` // 设备当前是否为飞行模式
-	Type    string `json:"type"`    // 消息类型
-	Version string `json:"version"` // Lua 脚本版本
-	Mobile  struct {
+	DeviceID         string `json:"deviceId"`         // 串口模块 ID
+	DeviceName       string `json:"deviceName"`       // 串口模块名称
+	ExpectedICCID    string `json:"expectedIccid"`    // 配置中绑定的 ICCID
+	IdentityMismatch bool   `json:"identityMismatch"` // 实际 ICCID 与配置是否不一致
+	Flymode          bool   `json:"flymode"`          // 设备当前是否为飞行模式
+	Type             string `json:"type"`             // 消息类型
+	Version          string `json:"version"`          // Lua 脚本版本
+	Mobile           struct {
 		IsRegistered bool    `json:"is_registered"`
 		IsRoaming    bool    `json:"is_roaming"`
 		Iccid        string  `json:"iccid"`
@@ -37,6 +41,15 @@ func (s *SerialService) handleStatusResponse(msg *ParsedMessage) {
 	if err := json.Unmarshal([]byte(msg.JSON), &statusData); err != nil {
 		s.logger.Error("JSON解析失败", zap.Error(err), zap.String("data", msg.JSON))
 		return
+	}
+	statusData.DeviceID = s.deviceID
+	statusData.DeviceName = s.deviceName
+	statusData.ExpectedICCID = s.expectedICCID
+	if s.expectedICCID != "" && statusData.Mobile.Iccid != "" && statusData.Mobile.Iccid != s.expectedICCID {
+		statusData.IdentityMismatch = true
+		s.logger.Error("SIM ICCID 与配置不一致",
+			zap.String("expected_iccid", s.expectedICCID),
+			zap.String("actual_iccid", statusData.Mobile.Iccid))
 	}
 	imsi := statusData.Mobile.Imsi
 	if len(imsi) > 5 {

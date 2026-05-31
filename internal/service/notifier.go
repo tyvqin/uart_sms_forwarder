@@ -33,16 +33,34 @@ func NewNotifier(logger *zap.Logger) *Notifier {
 
 // NotificationMessage 通用通知消息（支持短信、来电等）
 type NotificationMessage struct {
-	Type      string // "sms" 或 "call"
-	From      string
-	Content   string // 短信内容（来电时为空）
-	Timestamp int64
+	Type       string `json:"type"`                 // "sms" 或 "call"
+	DeviceID   string `json:"deviceId,omitempty"`   // 串口模块 ID
+	DeviceName string `json:"deviceName,omitempty"` // 串口模块名称
+	From       string `json:"from"`
+	Content    string `json:"content"` // 短信内容（来电时为空）
+	Timestamp  int64  `json:"timestamp"`
 }
 
 func (m NotificationMessage) String() string {
 	timestamp := time.Unix(m.Timestamp, 0)
+	deviceName := m.DeviceName
+	if deviceName == "" {
+		deviceName = m.DeviceID
+	}
 	switch m.Type {
 	case "call":
+		if deviceName != "" {
+			return fmt.Sprintf(`来电通知
+----
+模块: %s
+来电号码: %s
+时间: %s
+`,
+				deviceName,
+				m.From,
+				timestamp.Format(time.DateTime),
+			)
+		}
 		return fmt.Sprintf(`来电通知
 ----
 来电号码: %s
@@ -52,6 +70,19 @@ func (m NotificationMessage) String() string {
 			timestamp.Format(time.DateTime),
 		)
 	default: // "sms"
+		if deviceName != "" {
+			return fmt.Sprintf(`%s
+----
+模块: %s
+来自: %s
+时间: %s
+`,
+				m.Content,
+				deviceName,
+				m.From,
+				timestamp.Format(time.DateTime),
+			)
+		}
 		return fmt.Sprintf(`%s
 ----
 来自: %s

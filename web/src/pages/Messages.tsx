@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import {MoreVertical, RefreshCw, Search, Send, Trash2, User, X} from 'lucide-react';
 import {toast} from 'sonner';
 import {clearMessages, getConversations, getConversationMessages, deleteConversation, deleteMessage} from '../api/messages';
-import {sendSMS} from '../api/serial';
+import {getDevices, sendSMS} from '../api/serial';
 import {Input} from '@/components/ui/input';
 import {Button} from '@/components/ui/button';
 import {
@@ -14,12 +14,15 @@ import {
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import type {Conversation, TextMessage} from '@/api/types';
 
+const conversationKey = (conversation: Pick<Conversation, 'deviceId' | 'peer'>) =>
+    `${encodeURIComponent(conversation.deviceId || '')}::${encodeURIComponent(conversation.peer)}`;
+
 export default function Messages() {
     const queryClient = useQueryClient();
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // 选中的联系人
-    const [selectedPeer, setSelectedPeer] = useState<string | null>(null);
+    // 选中的会话
+    const [selectedConversationKey, setSelectedConversationKey] = useState<string | null>(null);
     // 输入框内容
     const [inputText, setInputText] = useState('');
     // 搜索关键词
@@ -49,20 +52,33 @@ export default function Messages() {
         refetchInterval: 5000, // 每 5 秒自动刷新
     });
 
+    const {data: devices = []} = useQuery({
+        queryKey: ['serialDevices'],
+        queryFn: getDevices,
+        refetchInterval: 10000,
+    });
+
+    const activeConversation = conversations.find(c => conversationKey(c) === selectedConversationKey);
+    const selectedPeer = activeConversation?.peer || null;
+    const selectedDeviceId = activeConversation?.deviceId || '';
+
+    const deviceName = (deviceId: string) =>
+        devices.find(device => device.id === deviceId)?.name || deviceId || '默认模块';
+
     // 获取指定会话的所有消息
     const {data: currentMessages = []} = useQuery<TextMessage[]>({
-        queryKey: ['conversation-messages', selectedPeer],
+        queryKey: ['conversation-messages', selectedConversationKey],
         queryFn: () => {
-            if (!selectedPeer) return Promise.resolve([]);
-            return getConversationMessages(selectedPeer);
+            if (!activeConversation) return Promise.resolve([]);
+            return getConversationMessages(activeConversation.peer, activeConversation.deviceId);
         },
-        enabled: !!selectedPeer,
+        enabled: !!activeConversation,
         refetchInterval: 5000,
     });
 
     // 发送短信 Mutation
     const sendSMSMutation = useMutation({
-        mutationFn: (data: { to: string; content: string }) => sendSMS(data),
+        mutationFn: (data: { deviceId?: string; to: string; content: string }) => sendSMS(data),
         onSuccess: () => {
             setInputText('');
             // 刷新会话列表和当前会话消息
@@ -80,7 +96,7 @@ export default function Messages() {
         mutationFn: clearMessages,
         onSuccess: () => {
             toast.success('清空成功');
-            setSelectedPeer(null);
+            setSelectedConversationKey(null);
             queryClient.invalidateQueries({queryKey: ['conversations']});
             queryClient.invalidateQueries({queryKey: ['conversation-messages']});
         },
@@ -92,12 +108,12 @@ export default function Messages() {
 
     // 删除整个会话
     const deleteConversationMutation = useMutation({
-        mutationFn: (peer: string) => deleteConversation(peer),
-        onSuccess: (_, peer) => {
+        mutationFn: (target: { peer: string; deviceId?: string }) => deleteConversation(target.peer, target.deviceId),
+        onSuccess: (_, target) => {
             toast.success('会话已删除');
             // 如果删除的是当前选中的会话，清除选中状态
-            if (selectedPeer === peer) {
-                setSelectedPeer(null);
+            if (selectedConversationKey === conversationKey({peer: target.peer, deviceId: target.deviceId || ''})) {
+                setSelectedConversationKey(null);
             }
             queryClient.invalidateQueries({queryKey: ['conversations']});
         },
@@ -123,18 +139,16 @@ export default function Messages() {
 
     // 自动选择第一个会话
     useEffect(() => {
-        if (!selectedPeer && conversations.length > 0) {
-            setSelectedPeer(conversations[0].peer);
+        const selectedExists = conversations.some(conv => conversationKey(conv) === selectedConversationKey);
+        if ((!selectedConversationKey || !selectedExists) && conversations.length > 0) {
+            setSelectedConversationKey(conversationKey(conversations[0]));
         }
-    }, [conversations, selectedPeer]);
+    }, [conversations, selectedConversationKey]);
 
     // 自动滚动到底部
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({behavior: "smooth"});
-    }, [selectedPeer, currentMessages]);
-
-    // 获取当前选中的会话信息
-    const activeConversation = conversations.find(c => c.peer === selectedPeer);
+    }, [selectedConversationKey, currentMessages]);
 
     // 过滤会话列表
     const filteredConversations = conversations.filter(conv =>
@@ -148,7 +162,7 @@ export default function Messages() {
             toast.warning('请输入短信内容');
             return;
         }
-        sendSMSMutation.mutate({to: selectedPeer, content: inputText});
+        sendSMSMutation.mutate({deviceId: selectedDeviceId, to: selectedPeer, content: inputText});
     };
 
     const handleClear = () => {
@@ -159,7 +173,7 @@ export default function Messages() {
     const handleDeleteConversation = () => {
         if (!selectedPeer) return;
         if (!confirm(`确定要删除与 ${selectedPeer} 的所有消息吗？此操作不可恢复！`)) return;
-        deleteConversationMutation.mutate(selectedPeer);
+        deleteConversationMutation.mutate({peer: selectedPeer, deviceId: selectedDeviceId});
     };
 
     const handleDeleteMessage = (messageId: string, e: React.MouseEvent) => {
@@ -268,10 +282,10 @@ export default function Messages() {
                         ) : (
                             filteredConversations.map(conv => (
                                 <div
-                                    key={conv.peer}
-                                    onClick={() => setSelectedPeer(conv.peer)}
+                                    key={conversationKey(conv)}
+                                    onClick={() => setSelectedConversationKey(conversationKey(conv))}
                                     className={`p-4 cursor-pointer transition-all border-l-2 hover:bg-gray-50 ${
-                                        selectedPeer === conv.peer
+                                        selectedConversationKey === conversationKey(conv)
                                             ? 'bg-blue-50/50 border-blue-500'
                                             : 'border-transparent'
                                     }`}
@@ -283,7 +297,7 @@ export default function Messages() {
                                                 {conv.peer.slice(-2)}
                                             </div>
                                             <span className={`text-sm font-semibold ${
-                                                selectedPeer === conv.peer ? 'text-gray-900' : 'text-gray-700'
+                                                selectedConversationKey === conversationKey(conv) ? 'text-gray-900' : 'text-gray-700'
                                             }`}>
                                                 {conv.peer}
                                             </span>
@@ -293,6 +307,7 @@ export default function Messages() {
                                         </span>
                                     </div>
                                     <p className="text-xs text-gray-500 line-clamp-2 ml-11">
+                                        <span className="text-blue-500">{deviceName(conv.deviceId)}: </span>
                                         {conv.lastMessage.type === 'outgoing' && '我: '}
                                         {conv.lastMessage.content}
                                     </p>
@@ -316,7 +331,7 @@ export default function Messages() {
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        onClick={() => setSelectedPeer(null)}
+                                        onClick={() => setSelectedConversationKey(null)}
                                         className="md:hidden -ml-2 text-gray-600"
                                     >
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -331,7 +346,7 @@ export default function Messages() {
                                     <div>
                                         <h3 className="text-sm font-bold text-gray-900">{selectedPeer}</h3>
                                         <span className="text-xs text-gray-500">
-                                            共 {activeConversation?.messageCount || 0} 条消息
+                                            {deviceName(selectedDeviceId)} · 共 {activeConversation?.messageCount || 0} 条消息
                                         </span>
                                     </div>
                                 </div>

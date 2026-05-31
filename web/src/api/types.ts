@@ -1,6 +1,7 @@
 // 短信记录
 export interface TextMessage {
     id: string;
+    deviceId: string;
     from: string;
     to: string;
     content: string;
@@ -27,6 +28,7 @@ export interface Stats {
 
 // 发送短信请求
 export interface SendSMSRequest {
+    deviceId?: string;
     to: string;
     content: string;
 }
@@ -50,12 +52,16 @@ export interface MobileInfo {
     csq: number;
     rsrp: number;
     rsrq: number;
-    number: number;
+    number: string;
     uptime: number;              // 开机时长 (毫秒)
 }
 
 // 设备状态响应（来自 Lua 脚本的 status_response）
 export interface DeviceStatus {
+    deviceId: string;            // 串口模块 ID
+    deviceName: string;          // 串口模块名称
+    expectedIccid: string;       // 配置绑定的 ICCID
+    identityMismatch: boolean;   // 实际 ICCID 与配置是否不一致
     type: string;                // 消息类型: "status_response"
     timestamp: number;           // 时间戳
     mem_kb: number;              // 内存使用 (KB)
@@ -64,6 +70,15 @@ export interface DeviceStatus {
     port_name: string;           // 串口名称
     connected: boolean;          // 串口连接状态
     version: string;             // Lua 版本
+}
+
+export interface SerialDeviceInfo {
+    id: string;
+    name: string;
+    port: string;
+    portName: string;
+    expectedIccid: string;
+    connected: boolean;
 }
 
 // 手机号码响应
@@ -75,6 +90,7 @@ export interface PhoneNumberResponse {
 
 // 会话信息
 export interface Conversation {
+    deviceId: string;          // 串口模块 ID
     peer: string;              // 对方号码
     lastMessage: TextMessage;  // 最后一条消息
     messageCount: number;      // 消息总数

@@ -19,6 +19,7 @@ const (
 // TextMessage 短信记录
 type TextMessage struct {
 	ID        string        `gorm:"primaryKey" json:"id"`                  // UUID
+	DeviceID  string        `gorm:"index" json:"deviceId"`                 // 串口模块 ID
 	From      string        `gorm:"index" json:"from"`                     // 发送方号码
 	To        string        `gorm:"index" json:"to"`                       // 接收方号码
 	Content   string        `gorm:"type:text" json:"content"`              // 短信内容

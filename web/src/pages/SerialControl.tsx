@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import {Activity, RotateCcw, Send, Signal, Wifi} from 'lucide-react';
 import {toast} from 'sonner';
 import {useMutation, useQuery} from '@tanstack/react-query';
@@ -7,26 +7,41 @@ import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
 import type {DeviceStatus} from '@/api/types';
 import {formatUptime} from "@/utils/utils.ts";
 
 export default function SerialControl() {
     const [to, setTo] = useState('');
     const [content, setContent] = useState('');
+    const [selectedDeviceId, setSelectedDeviceId] = useState('');
+
+    const {data: devices = []} = useQuery({
+        queryKey: ['serialDevices'],
+        queryFn: serialApi.getDevices,
+        refetchInterval: 10000,
+    });
+
+    useEffect(() => {
+        if (!selectedDeviceId && devices.length > 0) {
+            setSelectedDeviceId(devices[0].id);
+        }
+    }, [devices, selectedDeviceId]);
 
     // 获取设备状态（包含移动网络信息）- 每 30 秒自动刷新
     const {data: deviceStatus, isFetching, refetch: refetchStatus} = useQuery({
-        queryKey: ['deviceStatus'],
+        queryKey: ['deviceStatus', selectedDeviceId],
         queryFn: async () => {
-            const res = await serialApi.getStatus();
+            const res = await serialApi.getStatus(selectedDeviceId);
             return res as DeviceStatus;
         },
+        enabled: !!selectedDeviceId,
         refetchInterval: 10000, // 每 10 秒自动刷新
     });
 
     // 发送短信 Mutation
     const sendSMSMutation = useMutation({
-        mutationFn: (data: { to: string; content: string }) => serialApi.sendSMS(data),
+        mutationFn: (data: { deviceId?: string; to: string; content: string }) => serialApi.sendSMS(data),
         onSuccess: () => {
             toast.success('短信下发成功，等待确认...');
             setTo('');
@@ -40,7 +55,7 @@ export default function SerialControl() {
 
     // 设置飞行模式 Mutation
     const setFlymodeMutation = useMutation({
-        mutationFn: (enabled: boolean) => serialApi.setFlymode(enabled),
+        mutationFn: (enabled: boolean) => serialApi.setFlymode(enabled, selectedDeviceId),
         onSuccess: () => {
             toast.success('设置成功');
             // 刷新设备状态
@@ -54,7 +69,7 @@ export default function SerialControl() {
 
     // 重启模块 Mutation
     const rebootMcuMutation = useMutation({
-        mutationFn: () => serialApi.rebootMcu(),
+        mutationFn: () => serialApi.rebootMcu(selectedDeviceId),
         onSuccess: () => {
             toast.success('模块重启命令已发送');
             refetchStatus();
@@ -71,7 +86,11 @@ export default function SerialControl() {
             toast.warning('请输入手机号和短信内容');
             return;
         }
-        sendSMSMutation.mutate({to, content});
+        if (!selectedDeviceId) {
+            toast.warning('请选择发送模块');
+            return;
+        }
+        sendSMSMutation.mutate({deviceId: selectedDeviceId, to, content});
     };
 
     // 从设备状态中获取移动网络信息
@@ -82,6 +101,24 @@ export default function SerialControl() {
             {/* 顶部标题 */}
             <div className="mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">串口控制</h1>
+                {devices.length > 0 && (
+                    <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
+                        <span className="text-sm text-gray-500">当前模块</span>
+                        <Select value={selectedDeviceId} onValueChange={setSelectedDeviceId}>
+                            <SelectTrigger className="w-full sm:w-[260px]">
+                                <SelectValue placeholder="选择模块"/>
+                            </SelectTrigger>
+                            <SelectContent>
+                                {devices.map((device) => (
+                                    <SelectItem key={device.id} value={device.id}>
+                                        {device.name || device.id}
+                                        {device.connected ? ' · 已连接' : ' · 未连接'}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
             </div>
 
             {/* 主内容区 - 三列布局 */}
@@ -263,6 +300,14 @@ export default function SerialControl() {
                                             <span className="text-sm font-medium font-mono">{deviceStatus.port_name}</span>
                                         </div>
                                     )}
+                                    {deviceStatus.identityMismatch && (
+                                        <div className="pb-2 border-b">
+                                            <span className="text-xs text-red-500">ICCID 与配置不一致</span>
+                                            <div className="text-xs text-gray-500 mt-1 break-all">
+                                                期望：{deviceStatus.expectedIccid}
+                                            </div>
+                                        </div>
+                                    )}
                                     {deviceStatus.version && (
                                         <div className="flex justify-between items-center pb-2 border-b">
                                             <span className="text-xs text-gray-500">固件版本</span>
@@ -278,7 +323,7 @@ export default function SerialControl() {
                                     <div className="flex justify-between items-center pb-2 border-b">
                                         <span className="text-xs text-gray-500">开机时长</span>
                                         <span className="text-sm font-medium">
-                                            {formatUptime(mobile.uptime)}
+                                            {formatUptime(mobile?.uptime || 0)}
                                         </span>
                                     </div>
                                     <div className="flex justify-between items-center pb-2 border-b">

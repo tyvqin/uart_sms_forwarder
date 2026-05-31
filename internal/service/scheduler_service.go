@@ -20,19 +20,19 @@ type SchedulerService struct {
 	logger        *zap.Logger
 	cron          *cron.Cron
 	repo          *repo.ScheduledTaskRepo
-	serialService *SerialService
+	serialManager *SerialManager
 }
 
 // NewSchedulerService 创建定时任务服务实例
 func NewSchedulerService(
 	logger *zap.Logger,
 	db *gorm.DB,
-	serialService *SerialService,
+	serialManager *SerialManager,
 ) *SchedulerService {
 	return &SchedulerService{
 		logger:        logger,
 		repo:          repo.NewScheduledTaskRepo(db),
-		serialService: serialService,
+		serialManager: serialManager,
 	}
 }
 
@@ -61,6 +61,11 @@ func (s *SchedulerService) GetById(ctx context.Context, id string) (*models.Sche
 func (s *SchedulerService) Create(ctx context.Context, task *models.ScheduledTask) error {
 	now := time.Now().UnixMilli()
 	task.ID = uuid.New().String()
+	deviceID := s.serialManager.ResolveDeviceID(task.DeviceID)
+	if _, err := s.serialManager.Device(deviceID); err != nil {
+		return err
+	}
+	task.DeviceID = deviceID
 	task.CreatedAt = now
 	task.UpdatedAt = now
 	return s.repo.Create(ctx, task)
@@ -72,8 +77,13 @@ func (s *SchedulerService) Update(ctx context.Context, task *models.ScheduledTas
 	if err != nil {
 		return err
 	}
+	deviceID := s.serialManager.ResolveDeviceID(task.DeviceID)
+	if _, err := s.serialManager.Device(deviceID); err != nil {
+		return err
+	}
 	existingTask.Name = task.Name
 	existingTask.Enabled = task.Enabled
+	existingTask.DeviceID = deviceID
 	existingTask.IntervalDays = task.IntervalDays
 	existingTask.PhoneNumber = task.PhoneNumber
 	existingTask.Content = task.Content
@@ -183,17 +193,23 @@ func (s *SchedulerService) executeTask(task models.ScheduledTask) error {
 	s.logger.Info("执行定时任务",
 		zap.String("id", task.ID),
 		zap.String("name", task.Name),
+		zap.String("device_id", task.DeviceID),
 		zap.String("phone", task.PhoneNumber),
 		zap.String("content", task.Content))
 
 	ctx := context.Background()
 
-	flyMode := s.serialService.FlyMode()
+	deviceID := s.serialManager.ResolveDeviceID(task.DeviceID)
+
+	flyMode, err := s.serialManager.FlyMode(deviceID)
+	if err != nil {
+		return err
+	}
 	// 如果是飞行模式，取消飞行模式，再等待 30 秒后发送短信
 	if flyMode {
 		s.logger.Info("当前为飞行模式，取消飞行模式后等待 30 秒")
 		// 取消飞行模式
-		if err := s.serialService.SetFlymode(false); err != nil {
+		if err := s.serialManager.SetFlymode(deviceID, false); err != nil {
 			s.logger.Error("取消飞行模式失败", zap.Error(err))
 			return err
 		}
@@ -204,7 +220,7 @@ func (s *SchedulerService) executeTask(task models.ScheduledTask) error {
 	}
 
 	// 发送短信
-	msgId, err := s.serialService.SendSMS(task.PhoneNumber, task.Content)
+	msgId, err := s.serialManager.SendSMS(deviceID, task.PhoneNumber, task.Content)
 	if err != nil {
 		s.logger.Error("定时任务发送短信失败",
 			zap.String("id", task.ID),
@@ -225,7 +241,7 @@ func (s *SchedulerService) executeTask(task models.ScheduledTask) error {
 		s.logger.Info("等待 30 秒后重新设置飞行模式...")
 		time.Sleep(30 * time.Second)
 		s.logger.Info("重新设置飞行模式")
-		if err := s.serialService.SetFlymode(true); err != nil {
+		if err := s.serialManager.SetFlymode(deviceID, true); err != nil {
 			s.logger.Error("设置飞行模式失败", zap.Error(err))
 			return err
 		}

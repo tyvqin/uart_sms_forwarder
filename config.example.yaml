@@ -4,8 +4,9 @@ database:
   sqlite:
     path: "./data/app.db"
   show_sql: false
+
 log:
-  level: debug # 日志等级  debug,info,waring,error
+  level: debug
   filename: ./logs/sms.log
 
 server:
@@ -13,13 +14,10 @@ server:
   ip_extractor: "X-Real-IP"
 
 App:
-  # JWT配置
   JWT:
-    # 随机生成一个 32 字节的字符串，推荐使用 openssl rand -base64 32 生成
     Secret: ""
-    ExpiresHours: 168 # 7天
+    ExpiresHours: 168
   Users:
-    # 使用 Bcrypt 加密，默认密码为 admin123，建议首次登录后修改密码，搜索 bcrypt在线加密网站 即可
     admin: "$2y$12$7DXcOiX1D59xNTIn5riUKusAPLP88LxxoczWmUT83MBj5EFznbp8a"
   OIDC:
     Enabled: false
@@ -28,7 +26,18 @@ App:
     ClientSecret: ""
     RedirectURL: "http://localhost:8080/oidc/callback"
 
-  # 串口配置
   Serial:
-    # 留空则自动检测，建议首次启动后手动指定
+    # Backward-compatible single-device mode. Empty means auto-detect.
     Port: ""
+
+    # Multi-device mode. When Devices is configured, every device must use a fixed Port.
+    # Prefer /dev/serial/by-path/... or your own udev alias such as /dev/air780/sim1.
+    # Devices:
+    #   - ID: sim1
+    #     Name: "SIM 1"
+    #     Port: "/dev/air780/sim1"
+    #     ExpectedICCID: ""
+    #   - ID: sim2
+    #     Name: "SIM 2"
+    #     Port: "/dev/air780/sim2"
+    #     ExpectedICCID: ""

@@ -1,10 +1,11 @@
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import {Calendar, Clock, Edit, MessageSquare, Phone, Plus, Play, Trash2, CheckCircle2, XCircle} from 'lucide-react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {toast} from 'sonner';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
 import {
     Dialog,
     DialogContent,
@@ -22,8 +23,10 @@ import {
     triggerScheduledTask,
     updateScheduledTask,
 } from '../api/scheduled_task';
+import {getDevices} from '@/api/serial';
 
 interface TaskFormData {
+    deviceId: string;
     name: string;
     enabled: boolean;
     intervalDays: number;
@@ -36,6 +39,7 @@ export default function ScheduledTasksConfig() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<ScheduledTask | null>(null);
     const [formData, setFormData] = useState<TaskFormData>({
+        deviceId: '',
         name: '',
         enabled: false,
         intervalDays: 90,
@@ -76,6 +80,22 @@ export default function ScheduledTasksConfig() {
         queryKey: ['scheduledTasks'],
         queryFn: getScheduledTasks,
     });
+
+    const {data: devices = []} = useQuery({
+        queryKey: ['serialDevices'],
+        queryFn: getDevices,
+        refetchInterval: 10000,
+    });
+
+    useEffect(() => {
+        if (!formData.deviceId && devices.length > 0) {
+            setFormData(prev => ({...prev, deviceId: devices[0].id}));
+        }
+    }, [devices, formData.deviceId]);
+
+    const defaultDeviceId = devices[0]?.id || '';
+    const deviceName = (deviceId: string) =>
+        devices.find(device => device.id === deviceId)?.name || deviceId || '默认模块';
 
     // 创建任务 mutation
     const createMutation = useMutation({
@@ -138,6 +158,7 @@ export default function ScheduledTasksConfig() {
     // 重置表单
     const resetForm = () => {
         setFormData({
+            deviceId: defaultDeviceId,
             name: '',
             enabled: false,
             intervalDays: 90,
@@ -157,6 +178,7 @@ export default function ScheduledTasksConfig() {
     const handleOpenEditDialog = (task: ScheduledTask) => {
         setEditingTask(task);
         setFormData({
+            deviceId: task.deviceId || defaultDeviceId,
             name: task.name,
             enabled: task.enabled,
             intervalDays: task.intervalDays,
@@ -179,6 +201,10 @@ export default function ScheduledTasksConfig() {
         // 验证必填字段
         if (!formData.name.trim()) {
             toast.warning('请输入任务名称');
+            return;
+        }
+        if (devices.length > 0 && !formData.deviceId) {
+            toast.warning('请选择发送模块');
             return;
         }
         if (!formData.intervalDays || formData.intervalDays <= 0) {
@@ -282,6 +308,17 @@ export default function ScheduledTasksConfig() {
 
                             <CardContent className="">
                                 <div className="space-y-2 mb-3">
+                                    <div
+                                        className="flex items-start space-x-2 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                                        <MessageSquare size={14} className="text-gray-400 mt-0.5 flex-shrink-0"/>
+                                        <div className="flex-1 min-w-0">
+                                            <span
+                                                className="text-xs text-gray-400 font-medium block mb-0.5">发送模块</span>
+                                            <span
+                                                className="text-sm text-gray-700 font-semibold">{deviceName(task.deviceId)}</span>
+                                        </div>
+                                    </div>
+
                                     <div
                                         className="flex items-start space-x-2 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
                                         <Clock size={14} className="text-gray-400 mt-0.5 flex-shrink-0"/>
@@ -430,6 +467,31 @@ export default function ScheduledTasksConfig() {
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
+                            {/* 发送模块 */}
+                            <div className="col-span-2">
+                                <label
+                                    className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                                    <MessageSquare size={12} className="text-gray-400"/>
+                                    发送模块 <span className="text-red-500">*</span>
+                                </label>
+                                <Select value={formData.deviceId} onValueChange={(value) => updateFormField('deviceId', value)}>
+                                    <SelectTrigger className="w-full bg-gray-50 border-gray-200 focus:bg-white">
+                                        <SelectValue placeholder="选择发送模块"/>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {devices.map((device) => (
+                                            <SelectItem key={device.id} value={device.id}>
+                                                {device.name || device.id}
+                                                {device.connected ? ' · 已连接' : ' · 未连接'}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-gray-400 mt-1.5">
+                                    定时任务会从这个 SIM 模块发送
+                                </p>
+                            </div>
+
                             {/* 执行间隔天数 */}
                             <div className="col-span-2 sm:col-span-1">
                                 <label

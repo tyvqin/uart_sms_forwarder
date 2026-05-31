@@ -5,6 +5,7 @@ export type LastRunStatus = 'unknown' | 'success' | 'failed';
 
 export interface ScheduledTask {
     id: string;
+    deviceId: string;
     name: string;
     enabled: boolean;
     intervalDays: number;

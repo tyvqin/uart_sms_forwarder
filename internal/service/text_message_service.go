@@ -37,6 +37,7 @@ type Stats struct {
 
 // Conversation 会话信息
 type Conversation struct {
+	DeviceID     string              `json:"deviceId"`     // 串口模块 ID
 	Peer         string              `json:"peer"`         // 对方号码
 	LastMessage  *models.TextMessage `json:"lastMessage"`  // 最后一条消息
 	MessageCount int64               `json:"messageCount"` // 消息总数
@@ -133,7 +134,7 @@ func (s *TextMessageService) GetConversations(ctx context.Context) ([]*Conversat
 		return nil, fmt.Errorf("获取短信记录失败: %w", err)
 	}
 
-	// 按对方号码分组
+	// 按串口模块和对方号码分组
 	conversationMap := make(map[string]*Conversation)
 	for i := range messages {
 		msg := &messages[i]
@@ -150,9 +151,12 @@ func (s *TextMessageService) GetConversations(ctx context.Context) ([]*Conversat
 			continue
 		}
 
+		key := msg.DeviceID + "\x00" + peer
+
 		// 如果会话不存在，创建新会话
-		if _, exists := conversationMap[peer]; !exists {
-			conversationMap[peer] = &Conversation{
+		if _, exists := conversationMap[key]; !exists {
+			conversationMap[key] = &Conversation{
+				DeviceID:     msg.DeviceID,
 				Peer:         peer,
 				LastMessage:  msg,
 				MessageCount: 0,
@@ -161,11 +165,11 @@ func (s *TextMessageService) GetConversations(ctx context.Context) ([]*Conversat
 		}
 
 		// 更新消息数量
-		conversationMap[peer].MessageCount++
+		conversationMap[key].MessageCount++
 
 		// 更新最后一条消息（取最新的）
-		if msg.CreatedAt > conversationMap[peer].LastMessage.CreatedAt {
-			conversationMap[peer].LastMessage = msg
+		if msg.CreatedAt > conversationMap[key].LastMessage.CreatedAt {
+			conversationMap[key].LastMessage = msg
 		}
 	}
 
@@ -188,16 +192,20 @@ func (s *TextMessageService) GetConversations(ctx context.Context) ([]*Conversat
 }
 
 // GetConversationMessages 获取指定会话的所有消息
-func (s *TextMessageService) GetConversationMessages(ctx context.Context, peer string) ([]models.TextMessage, error) {
+func (s *TextMessageService) GetConversationMessages(ctx context.Context, deviceID, peer string) ([]models.TextMessage, error) {
 	db := s.repo.GetDB(ctx)
 
 	var messages []models.TextMessage
 
 	// 查询条件：(type=incoming AND from=peer) OR (type=outgoing AND to=peer)
-	if err := db.Where("(type = ? AND \"from\" = ?) OR (type = ? AND \"to\" = ?)",
+	query := db.Where("((type = ? AND \"from\" = ?) OR (type = ? AND \"to\" = ?))",
 		models.MessageTypeIncoming, peer,
 		models.MessageTypeOutgoing, peer,
-	).Order("created_at ASC").Find(&messages).Error; err != nil {
+	)
+	if deviceID != "" {
+		query = query.Where("device_id = ?", deviceID)
+	}
+	if err := query.Order("created_at ASC").Find(&messages).Error; err != nil {
 		s.logger.Error("获取会话消息失败", zap.Error(err), zap.String("peer", peer))
 		return nil, fmt.Errorf("获取会话消息失败: %w", err)
 	}
@@ -206,14 +214,18 @@ func (s *TextMessageService) GetConversationMessages(ctx context.Context, peer s
 }
 
 // DeleteConversation 删除整个会话（与某个联系人的所有消息）
-func (s *TextMessageService) DeleteConversation(ctx context.Context, peer string) error {
+func (s *TextMessageService) DeleteConversation(ctx context.Context, deviceID, peer string) error {
 	db := s.repo.GetDB(ctx)
 
 	// 删除条件：(type=incoming AND from=peer) OR (type=outgoing AND to=peer)
-	result := db.Where("(type = ? AND \"from\" = ?) OR (type = ? AND \"to\" = ?)",
+	query := db.Where("((type = ? AND \"from\" = ?) OR (type = ? AND \"to\" = ?))",
 		models.MessageTypeIncoming, peer,
 		models.MessageTypeOutgoing, peer,
-	).Delete(&models.TextMessage{})
+	)
+	if deviceID != "" {
+		query = query.Where("device_id = ?", deviceID)
+	}
+	result := query.Delete(&models.TextMessage{})
 
 	if result.Error != nil {
 		s.logger.Error("删除会话失败", zap.Error(result.Error), zap.String("peer", peer))
